@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jpfin"
-version = "0.3.1"
+version = "0.4.0"
 description = "Unified CLI for Japanese equity factor analysis"
 readme = "README.md"
 license = "Apache-2.0"
@@ -23,6 +23,7 @@ classifiers = [
 dependencies = [
     "japan-finance-factors[all]>=0.2.1",
     "japan-finance-codes>=0.2.0",
+    "japan-finance-events>=0.1.0",
     "click>=8.0",
 ]
 
@@ -57,7 +58,7 @@ mypy_path = ["src"]
 follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
-module = ["japan_finance_factors", "japan_finance_factors.*", "japan_finance_codes", "japan_finance_codes.*"]
+module = ["japan_finance_factors", "japan_finance_factors.*", "japan_finance_codes", "japan_finance_codes.*", "japan_finance_events", "japan_finance_events.*"]
 ignore_missing_imports = true
 
 [dependency-groups]

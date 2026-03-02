@@ -806,6 +806,18 @@ wheels = [
 ]
 
 [[package]]
+name = "japan-finance-events"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/fb/2a06e3997e5bea4831eee28bbdcc9308f8aadec70e05b3aeff60edee7ee1/japan_finance_events-0.1.0.tar.gz", hash = "sha256:4742dc0c50cea0406861362a95d7f78ee79b8d9359b442d931b5a22ab40e74bc", size = 106481, upload-time = "2026-03-01T18:40:33.232Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6a/41/fdcb6ef17312c0e7b7ed3a0a2b23d2e82d37f3d9500d87dcf3cc26324a43/japan_finance_events-0.1.0-py3-none-any.whl", hash = "sha256:5bfb1b00a9a34fe602bfe165d1b648a864c9fb989918ae32ea86c1008d58b31c", size = 8270, upload-time = "2026-03-01T18:40:31.667Z" },
+]
+
+[[package]]
 name = "japan-finance-factors"
 version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -875,6 +887,7 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "japan-finance-codes" },
+    { name = "japan-finance-events" },
     { name = "japan-finance-factors", extra = ["all"] },
 ]
 
@@ -890,6 +903,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "japan-finance-codes", specifier = ">=0.2.0" },
+    { name = "japan-finance-events", specifier = ">=0.1.0" },
     { name = "japan-finance-factors", extras = ["all"], specifier = ">=0.2.1" },
 ]
 
