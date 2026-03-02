@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,34 +12,45 @@ from jpfin.analyze import _resolve_edinet_code, analyze_ticker_sync
 
 
 class TestResolveEdinetCode:
-    @patch("jpfin.analyze.resolve", create=True)
-    def test_resolve_success(self, mock_resolve: MagicMock) -> None:
-        mock_result = type("R", (), {"edinet_code": "E02144"})()
-        mock_resolve.return_value = mock_result
-        mock_mod = MagicMock(resolve=mock_resolve)
+    def test_resolve_success(self) -> None:
+        mock_company = type(
+            "C", (), {"edinet_code": "E02144"},
+        )()
+        mock_registry = MagicMock(by_ticker=MagicMock(
+            return_value=mock_company,
+        ))
+        mock_cls = AsyncMock()
+        mock_cls.create = AsyncMock(return_value=mock_registry)
+        mock_mod = MagicMock(CompanyRegistry=mock_cls)
         with patch.dict(
             "sys.modules", {"japan_finance_codes": mock_mod},
         ):
-            result = _resolve_edinet_code("7203")
+            result = asyncio.run(_resolve_edinet_code("7203"))
             assert result == "E02144"
 
     def test_resolve_returns_none_on_failure(self) -> None:
-        mock_mod = MagicMock(
-            resolve=MagicMock(return_value=None),
+        mock_registry = MagicMock(
+            by_ticker=MagicMock(return_value=None),
         )
+        mock_cls = AsyncMock()
+        mock_cls.create = AsyncMock(return_value=mock_registry)
+        mock_mod = MagicMock(CompanyRegistry=mock_cls)
         with patch.dict(
             "sys.modules", {"japan_finance_codes": mock_mod},
         ):
-            assert _resolve_edinet_code("XXXX") is None
+            assert asyncio.run(_resolve_edinet_code("XXXX")) is None
 
 
 class TestAnalyzeTickerSync:
     @patch("jpfin.analyze._fetch_prices", new_callable=AsyncMock)
     @patch("jpfin.analyze._fetch_financials", new_callable=AsyncMock)
-    @patch("jpfin.analyze._resolve_edinet_code")
+    @patch(
+        "jpfin.analyze._resolve_edinet_code",
+        new_callable=AsyncMock,
+    )
     def test_price_only(
         self,
-        mock_resolve: MagicMock,
+        mock_resolve: AsyncMock,
         mock_fin: AsyncMock,
         mock_price: AsyncMock,
     ) -> None:
@@ -67,10 +79,13 @@ class TestAnalyzeTickerSync:
 
     @patch("jpfin.analyze._fetch_prices", new_callable=AsyncMock)
     @patch("jpfin.analyze._fetch_financials", new_callable=AsyncMock)
-    @patch("jpfin.analyze._resolve_edinet_code")
+    @patch(
+        "jpfin.analyze._resolve_edinet_code",
+        new_callable=AsyncMock,
+    )
     def test_no_data(
         self,
-        mock_resolve: MagicMock,
+        mock_resolve: AsyncMock,
         mock_fin: AsyncMock,
         mock_price: AsyncMock,
     ) -> None:

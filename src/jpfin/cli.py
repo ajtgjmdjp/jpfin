@@ -154,7 +154,11 @@ def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
         f"  Loaded {len(price_data)} tickers from {csv_path}", err=True,
     )
 
-    result = run_backtest(price_data, factor, top_n=top_n)
+    try:
+        result = run_backtest(price_data, factor, top_n=top_n)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     if "error" in result:
         click.echo(f"Error: {result['error']}", err=True)

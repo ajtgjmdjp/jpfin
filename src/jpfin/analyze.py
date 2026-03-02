@@ -11,12 +11,13 @@ from japan_finance_factors._models import FinancialData, PriceData
 from japan_finance_factors.fetch import fetch_financial_data, fetch_price_data
 
 
-def _resolve_edinet_code(ticker: str) -> str | None:
+async def _resolve_edinet_code(ticker: str) -> str | None:
     """Resolve ticker to EDINET code using japan-finance-codes."""
     try:
-        from japan_finance_codes import resolve
+        from japan_finance_codes import CompanyRegistry
 
-        result = resolve(ticker)
+        registry = await CompanyRegistry.create()
+        result = registry.by_ticker(ticker)
         if result and result.edinet_code:
             return result.edinet_code
     except (ImportError, Exception):
@@ -72,7 +73,7 @@ async def analyze_ticker(
     as_of = as_of or datetime.now()
 
     # 1. Resolve EDINET code
-    edinet_code = _resolve_edinet_code(ticker)
+    edinet_code = await _resolve_edinet_code(ticker)
 
     # 2. Fetch data in parallel
     fd_task = _fetch_financials(ticker, edinet_code, year)
