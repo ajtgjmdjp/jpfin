@@ -82,7 +82,7 @@ class TestAnalyzeCommand:
         runner = CliRunner()
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
-        assert "0.3.1" in result.output
+        assert __import__("jpfin").__version__ in result.output
 
     @patch("jpfin.cli.analyze_ticker_sync")
     def test_error_exits_nonzero(self, mock_analyze) -> None:
