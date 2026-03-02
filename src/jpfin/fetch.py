@@ -261,9 +261,7 @@ def update_prices_csv(
         if ticker in merged:
             existing_dates = {p.get("date", "") for p in merged[ticker].prices}
 
-        new_prices = [
-            p for p in new_pd.prices if p.get("date", "") not in existing_dates
-        ]
+        new_prices = [p for p in new_pd.prices if p.get("date", "") not in existing_dates]
         new_rows += len(new_prices)
 
         if ticker in merged:

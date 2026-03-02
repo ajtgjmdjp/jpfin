@@ -56,9 +56,7 @@ class TestSavePricesCsv:
                 ],
             ),
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             path = f.name
 
         rows = save_prices_csv(data, path)
@@ -82,9 +80,7 @@ class TestSavePricesCsv:
                 prices=[{"date": "2024-01-01", "close": 3000.0}],
             ),
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             path = f.name
 
         rows = save_prices_csv(data, path)
@@ -115,9 +111,7 @@ class TestSavePricesCsv:
                 ],
             ),
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             path = f.name
 
         save_prices_csv(data, path)
@@ -128,9 +122,7 @@ class TestSavePricesCsv:
         assert len(loaded["6758"].prices) == 1
 
     def test_empty_data(self) -> None:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             path = f.name
 
         rows = save_prices_csv({}, path)
@@ -154,9 +146,7 @@ def _make_single_ticker_df() -> MagicMock:
     """Create a mock DataFrame mimicking yf.download() for a single ticker."""
     import pandas as pd
 
-    idx = pd.DatetimeIndex(
-        [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")]
-    )
+    idx = pd.DatetimeIndex([pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")])
     df = pd.DataFrame(
         {
             "Open": [2000.0, 2010.0],

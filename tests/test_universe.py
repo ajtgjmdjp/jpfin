@@ -67,9 +67,7 @@ class TestLoadUniverse:
         assert result.survivorship_risk == "low"
 
     def test_from_file(self) -> None:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write("7203\n6758\n# comment\n\n9984\n")
             f.flush()
             result = load_universe(file=f.name)
@@ -82,9 +80,7 @@ class TestLoadUniverse:
             load_universe(file="/nonexistent/file.txt")
 
     def test_from_file_empty(self) -> None:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write("# only comments\n\n")
             f.flush()
             with pytest.raises(ValueError, match="No valid tickers"):

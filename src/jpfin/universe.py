@@ -142,9 +142,7 @@ def load_universe(
         snapshots = _load_index_snapshots()
         if name not in snapshots:
             available = list_universes()
-            raise ValueError(
-                f"Unknown index '{name}'. Available: {', '.join(available)}"
-            )
+            raise ValueError(f"Unknown index '{name}'. Available: {', '.join(available)}")
         snapshot = snapshots[name]
         return UniverseResult(
             tickers=snapshot["tickers"],
