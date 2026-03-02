@@ -5,9 +5,11 @@ from __future__ import annotations
 import tempfile
 from datetime import date, timedelta
 
+import pytest
 from japan_finance_factors._models import PriceData
 
 from jpfin.backtest import _month_end_dates, load_prices_csv, run_backtest
+from jpfin.models import BacktestError, BacktestResult
 
 
 def _make_price_data(
@@ -90,14 +92,12 @@ class TestRunBacktest:
             "C": _make_price_data("C", 300, 1000, step=0.5),
         }
         result = run_backtest(price_data, "mom_3m", top_n=2)
-        assert "error" not in result
-        assert result["factor"] == "mom_3m"
-        assert result["top_n"] == 2
-        assert result["months"] > 0
-        assert "performance" in result
-        perf = result["performance"]
-        assert perf["total_return"] > 0  # All uptrending
-        assert perf["max_drawdown"] <= 0
+        assert isinstance(result, BacktestResult)
+        assert result.factor == "mom_3m"
+        assert result.top_n == 2
+        assert result.months > 0
+        assert result.performance.total_return > 0  # All uptrending
+        assert result.performance.max_drawdown <= 0
 
     def test_insufficient_data(self) -> None:
         price_data = {
@@ -106,12 +106,10 @@ class TestRunBacktest:
                 prices=[{"date": "2024-01-01", "close": 100}],
             ),
         }
-        result = run_backtest(price_data, "mom_3m", top_n=1)
-        assert "error" in result
+        with pytest.raises(BacktestError):
+            run_backtest(price_data, "mom_3m", top_n=1)
 
     def test_unsupported_factor(self) -> None:
-        import pytest
-
         price_data = {"A": _make_price_data("A")}
         with pytest.raises(ValueError, match="Unsupported factor"):
             run_backtest(price_data, "roe", top_n=1)
@@ -122,15 +120,25 @@ class TestRunBacktest:
             "B": _make_price_data("B", 300, step=1.0),
         }
         result = run_backtest(price_data, "mom_3m", top_n=1)
-        assert len(result["holdings_history"]) > 0
-        for h in result["holdings_history"]:
-            assert "A" in h["holdings"]
+        assert len(result.holdings_history) > 0
+        for h in result.holdings_history:
+            assert "A" in h.holdings
 
     def test_top_n_validation(self) -> None:
-        import pytest
-
         price_data = {"A": _make_price_data("A")}
         with pytest.raises(ValueError, match="top_n must be >= 1"):
             run_backtest(price_data, "mom_3m", top_n=0)
         with pytest.raises(ValueError, match="top_n must be >= 1"):
             run_backtest(price_data, "mom_3m", top_n=-1)
+
+    def test_model_dump_is_serializable(self) -> None:
+        """BacktestResult.model_dump() should produce JSON-serializable dict."""
+        import json
+
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1)
+        dumped = result.model_dump()
+        json.dumps(dumped)  # should not raise

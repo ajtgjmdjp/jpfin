@@ -176,28 +176,24 @@ def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
 
     try:
         result = run_backtest(price_data, factor, top_n=top_n)
-    except ValueError as e:
+    except (ValueError, Exception) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    if "error" in result:
-        click.echo(f"Error: {result['error']}", err=True)
-        sys.exit(1)
-
     if fmt == "json":
-        click.echo(format_json([result]))
+        click.echo(format_json([result.model_dump()]))
     else:
-        perf = result["performance"]
+        perf = result.performance
         click.echo(f"\n  {'=' * 50}")
         click.echo(f"  Backtest: Top {top_n} by {factor}")
-        click.echo(f"  Period: {result['period']}")
-        click.echo(f"  Months: {result['months']}")
+        click.echo(f"  Period: {result.period}")
+        click.echo(f"  Months: {result.months}")
         click.echo(f"  {'=' * 50}")
-        click.echo(f"  Total Return:    {perf['total_return']:>8.1%}")
-        click.echo(f"  CAGR:            {perf['cagr']:>8.1%}")
-        click.echo(f"  Annualized Vol:  {perf['annualized_vol']:>8.1%}")
-        click.echo(f"  Sharpe Ratio:    {perf['sharpe_ratio']:>8.2f}")
-        click.echo(f"  Max Drawdown:    {perf['max_drawdown']:>8.1%}")
+        click.echo(f"  Total Return:    {perf.total_return:>8.1%}")
+        click.echo(f"  CAGR:            {perf.cagr:>8.1%}")
+        click.echo(f"  Annualized Vol:  {perf.annualized_vol:>8.1%}")
+        click.echo(f"  Sharpe Ratio:    {perf.sharpe_ratio:>8.2f}")
+        click.echo(f"  Max Drawdown:    {perf.max_drawdown:>8.1%}")
         click.echo()
 
 
@@ -272,7 +268,7 @@ def event_study(
         sys.exit(1)
 
     if fmt == "json":
-        click.echo(format_json([result]))
+        click.echo(format_json([result.model_dump()]))
     else:
         click.echo(f"\n  {'=' * 60}")
         click.echo(f"  Event Study: {ticker} @ {event_date}")
@@ -280,8 +276,8 @@ def event_study(
         click.echo(f"  {'Window':>8s}  {'as_of':>12s}", nl=False)
         # Collect all factor names from windows
         all_factors: list[str] = []
-        for w in result["windows"]:
-            for k in w.get("factors", {}):
+        for w in result.windows:
+            for k in w.factors:
                 if k not in all_factors:
                     all_factors.append(k)
         for f in all_factors:
@@ -292,11 +288,11 @@ def event_study(
             click.echo(f"  {'-' * 16}", nl=False)
         click.echo()
 
-        for w in result["windows"]:
-            as_of = w["as_of"][:10] if w["as_of"] else "N/A"
-            click.echo(f"  {w['window']:>8s}  {as_of:>12s}", nl=False)
+        for w in result.windows:
+            as_of = w.as_of[:10] if w.as_of else "N/A"
+            click.echo(f"  {w.window:>8s}  {as_of:>12s}", nl=False)
             for f in all_factors:
-                val = w.get("factors", {}).get(f)
+                val = w.factors.get(f)
                 if val is not None:
                     click.echo(f"  {val:>16.4f}", nl=False)
                 else:

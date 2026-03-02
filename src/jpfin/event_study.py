@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from japan_finance_events import Direction, Event, EventStore, EventType
 from japan_finance_factors._models import PriceData
@@ -18,6 +17,7 @@ from japan_finance_factors.fetch import fetch_price_data
 from jpfin._utils import parse_date
 from jpfin.factor_registry import compute_price_factors
 from jpfin.fusion import EventFactorFusion
+from jpfin.models import EventStudyResult, EventStudyWindow
 
 
 class PriceFactorProvider:
@@ -69,7 +69,7 @@ def run_event_study(
     before_days: list[int] | None = None,
     after_days: list[int] | None = None,
     factors: list[str] | None = None,
-) -> dict[str, Any]:
+) -> EventStudyResult:
     """Run an event-study analysis for a ticker at a given event date.
 
     Args:
@@ -80,7 +80,7 @@ def run_event_study(
         factors: Specific factors to compute.
 
     Returns:
-        Dict with event info and factor context at each time window.
+        Typed EventStudyResult with factor context at each time window.
     """
     # Fetch price data (async → sync bridge)
     price_data = asyncio.run(_fetch_prices(ticker))
@@ -111,19 +111,17 @@ def run_event_study(
         factors=factors,
     )
 
-    windows: list[dict[str, Any]] = []
+    windows: list[EventStudyWindow] = []
     for label, obs in ctx.items():
-        entry: dict[str, Any] = {"window": label}
         if obs is not None:
-            entry["as_of"] = obs.as_of.isoformat()
-            entry["factors"] = obs.factors
+            windows.append(
+                EventStudyWindow(
+                    window=label,
+                    as_of=obs.as_of.isoformat(),
+                    factors=obs.factors,
+                )
+            )
         else:
-            entry["as_of"] = None
-            entry["factors"] = {}
-        windows.append(entry)
+            windows.append(EventStudyWindow(window=label, as_of=None, factors={}))
 
-    return {
-        "ticker": ticker,
-        "event_date": event_date,
-        "windows": windows,
-    }
+    return EventStudyResult(ticker=ticker, event_date=event_date, windows=windows)

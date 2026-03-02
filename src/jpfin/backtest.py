@@ -18,6 +18,13 @@ from japan_finance_factors._models import PriceData
 
 from jpfin._utils import parse_date
 from jpfin.factor_registry import HIGHER_IS_BETTER, PRICE_FACTOR_FNS
+from jpfin.models import (
+    BacktestError,
+    BacktestResult,
+    HoldingsPeriod,
+    MonthlyReturn,
+    PerformanceMetrics,
+)
 
 
 def load_prices_csv(path: str | Path) -> dict[str, PriceData]:
@@ -78,24 +85,24 @@ def _next_trading_day(
 
 def _compute_performance(
     returns: list[float],
-) -> dict[str, float]:
+) -> PerformanceMetrics:
     """Compute summary statistics from monthly return series."""
     portfolio_value = 1.0
     for r in returns:
         portfolio_value *= 1 + r
 
     n_months = len(returns)
-    total_return = portfolio_value - 1.0
 
     if n_months == 0 or portfolio_value <= 0:
-        return {
-            "total_return": 0.0,
-            "cagr": 0.0,
-            "annualized_vol": 0.0,
-            "sharpe_ratio": 0.0,
-            "max_drawdown": 0.0,
-        }
+        return PerformanceMetrics(
+            total_return=0.0,
+            cagr=0.0,
+            annualized_vol=0.0,
+            sharpe_ratio=0.0,
+            max_drawdown=0.0,
+        )
 
+    total_return = portfolio_value - 1.0
     cagr = portfolio_value ** (12.0 / n_months) - 1.0
 
     if n_months >= 2:
@@ -117,13 +124,13 @@ def _compute_performance(
         dd = (c - peak) / peak
         max_dd = min(max_dd, dd)
 
-    return {
-        "total_return": total_return,
-        "cagr": cagr,
-        "annualized_vol": ann_vol,
-        "sharpe_ratio": sharpe,
-        "max_drawdown": max_dd,
-    }
+    return PerformanceMetrics(
+        total_return=total_return,
+        cagr=cagr,
+        annualized_vol=ann_vol,
+        sharpe_ratio=sharpe,
+        max_drawdown=max_dd,
+    )
 
 
 def run_backtest(
@@ -133,7 +140,7 @@ def run_backtest(
     top_n: int = 5,
     start_date: date | None = None,
     end_date: date | None = None,
-) -> dict[str, Any]:
+) -> BacktestResult:
     """Run a simple long-only monthly rebalance backtest.
 
     Strategy: At each month-end, compute the specified price-based
@@ -182,15 +189,15 @@ def run_backtest(
         sorted_dates = [d for d in sorted_dates if d <= end_date]
 
     if len(sorted_dates) < 2:
-        return {"error": "Insufficient date range for backtest"}
+        raise BacktestError("Insufficient date range for backtest")
 
     rebalance_dates = _month_end_dates(sorted_dates)
     if len(rebalance_dates) < 2:
-        return {"error": "Need at least 2 months of data"}
+        raise BacktestError("Need at least 2 months of data")
 
     # Run backtest
-    holdings_history: list[dict[str, Any]] = []
-    monthly_returns: list[dict[str, Any]] = []
+    holdings_history: list[HoldingsPeriod] = []
+    monthly_returns: list[MonthlyReturn] = []
     portfolio_value = 1.0
     higher_is_better = HIGHER_IS_BETTER.get(factor_fn, True)
 
@@ -248,33 +255,33 @@ def run_backtest(
         avg_return = sum(period_returns) / len(period_returns) if period_returns else 0.0
         portfolio_value *= 1 + avg_return
 
-        period_info: dict[str, Any] = {
-            "date": rebal_date.isoformat(),
-            "holdings": selected,
-            "factor_values": {t: v for t, v in factor_values[:top_n]},
-        }
-        if skipped_tickers:
-            period_info["skipped"] = skipped_tickers
-        holdings_history.append(period_info)
-
-        monthly_returns.append(
-            {
-                "period_start": rebal_date.isoformat(),
-                "period_end": next_rebal.isoformat(),
-                "return": avg_return,
-                "cumulative": portfolio_value,
-            }
+        holdings_history.append(
+            HoldingsPeriod(
+                date=rebal_date.isoformat(),
+                holdings=selected,
+                factor_values={t: v for t, v in factor_values[:top_n]},
+                skipped=skipped_tickers or None,
+            )
         )
 
-    returns = [m["return"] for m in monthly_returns]
+        monthly_returns.append(
+            MonthlyReturn(
+                period_start=rebal_date.isoformat(),
+                period_end=next_rebal.isoformat(),
+                monthly_return=avg_return,
+                cumulative=portfolio_value,
+            )
+        )
+
+    returns = [m.monthly_return for m in monthly_returns]
     performance = _compute_performance(returns)
 
-    return {
-        "factor": factor_fn,
-        "top_n": top_n,
-        "period": (f"{rebalance_dates[0].isoformat()} ~ {rebalance_dates[-1].isoformat()}"),
-        "months": len(returns),
-        "performance": performance,
-        "monthly_returns": monthly_returns,
-        "holdings_history": holdings_history,
-    }
+    return BacktestResult(
+        factor=factor_fn,
+        top_n=top_n,
+        period=f"{rebalance_dates[0].isoformat()} ~ {rebalance_dates[-1].isoformat()}",
+        months=len(returns),
+        performance=performance,
+        monthly_returns=monthly_returns,
+        holdings_history=holdings_history,
+    )
