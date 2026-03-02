@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pytest
 from japan_finance_factors._models import PriceData
 
-from jpfin.backtest import _month_end_dates, load_prices_csv, run_backtest
+from jpfin.backtest import _ffill_close, _month_end_dates, load_prices_csv, run_backtest
 from jpfin.models import BacktestError, BacktestResult
 
 
@@ -142,3 +142,47 @@ class TestRunBacktest:
         result = run_backtest(price_data, "mom_3m", top_n=1)
         dumped = result.model_dump()
         json.dumps(dumped)  # should not raise
+
+    def test_data_quality_present(self) -> None:
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1)
+        assert result.data_quality is not None
+        assert result.data_quality.total_rebalances > 0
+        assert result.data_quality.coverage > 0
+
+    def test_ffill_limit_zero_strict(self) -> None:
+        """With ffill_limit=0, only exact-date prices are used."""
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1, ffill_limit=0)
+        assert isinstance(result, BacktestResult)
+        # Should still produce results (continuous data)
+        assert result.months > 0
+
+
+class TestFfillClose:
+    def test_exact_match(self) -> None:
+        closes = {date(2024, 1, 10): 100.0, date(2024, 1, 11): 101.0}
+        sorted_dates = [date(2024, 1, 10), date(2024, 1, 11)]
+        assert _ffill_close(closes, date(2024, 1, 10), sorted_dates) == 100.0
+
+    def test_forward_fill(self) -> None:
+        closes = {date(2024, 1, 10): 100.0}
+        sorted_dates = [date(2024, 1, 10), date(2024, 1, 11), date(2024, 1, 12)]
+        # date(2024, 1, 12) not in closes → fill from 2024-01-10
+        assert _ffill_close(closes, date(2024, 1, 12), sorted_dates) == 100.0
+
+    def test_beyond_limit(self) -> None:
+        closes = {date(2024, 1, 1): 100.0}
+        sorted_dates = [date(2024, 1, 1)] + [date(2024, 1, i) for i in range(2, 20)]
+        # 15 days gap, limit=5 → None
+        assert _ffill_close(closes, date(2024, 1, 15), sorted_dates, limit=5) is None
+
+    def test_empty_closes(self) -> None:
+        sorted_dates = [date(2024, 1, 10)]
+        assert _ffill_close({}, date(2024, 1, 10), sorted_dates) is None

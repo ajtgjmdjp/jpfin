@@ -37,6 +37,23 @@ class HoldingsPeriod(BaseModel):
     skipped: list[str] | None = None
 
 
+class DataQuality(BaseModel):
+    """Data coverage and gap statistics for a backtest."""
+
+    total_rebalances: int
+    skipped_rebalances: int
+    total_ticker_slots: int
+    ffill_count: int
+    skip_count: int
+
+    @property
+    def coverage(self) -> float:
+        """Fraction of ticker-slots with usable prices."""
+        if self.total_ticker_slots == 0:
+            return 0.0
+        return 1.0 - self.skip_count / self.total_ticker_slots
+
+
 class BacktestResult(BaseModel):
     """Complete backtest output."""
 
@@ -47,6 +64,7 @@ class BacktestResult(BaseModel):
     performance: PerformanceMetrics
     monthly_returns: list[MonthlyReturn]
     holdings_history: list[HoldingsPeriod]
+    data_quality: DataQuality | None = None
 
 
 class EventStudyWindow(BaseModel):

@@ -21,6 +21,7 @@ from jpfin.factor_registry import HIGHER_IS_BETTER, PRICE_FACTOR_FNS
 from jpfin.models import (
     BacktestError,
     BacktestResult,
+    DataQuality,
     HoldingsPeriod,
     MonthlyReturn,
     PerformanceMetrics,
@@ -83,6 +84,30 @@ def _next_trading_day(
     return None
 
 
+def _ffill_close(
+    closes: dict[date, float],
+    target: date,
+    sorted_dates: list[date],
+    limit: int = 5,
+) -> float | None:
+    """Return close on *target* or forward-fill from the most recent prior day.
+
+    Looks back up to *limit* trading days before *target* for a valid close.
+    Returns ``None`` if no close found within the window.
+    """
+    if target in closes:
+        return closes[target]
+    idx = bisect.bisect_left(sorted_dates, target)
+    # Walk backwards from idx-1
+    for j in range(idx - 1, max(idx - 1 - limit, -1), -1):
+        if j < 0:
+            break
+        d = sorted_dates[j]
+        if d in closes:
+            return closes[d]
+    return None
+
+
 def _compute_performance(
     returns: list[float],
 ) -> PerformanceMetrics:
@@ -140,6 +165,7 @@ def run_backtest(
     top_n: int = 5,
     start_date: date | None = None,
     end_date: date | None = None,
+    ffill_limit: int = 5,
 ) -> BacktestResult:
     """Run a simple long-only monthly rebalance backtest.
 
@@ -153,12 +179,16 @@ def run_backtest(
         top_n: Number of top tickers to hold (>= 1).
         start_date: Backtest start date.
         end_date: Backtest end date.
+        ffill_limit: Max trading days to look back for execution
+            prices when no close exists on the exact date. Set to 0
+            to disable forward-fill (strict mode).
 
     Returns:
-        Dict with performance metrics and return series.
+        BacktestResult with performance metrics and return series.
 
     Raises:
         ValueError: If factor_fn is unsupported or top_n < 1.
+        BacktestError: If insufficient data to run backtest.
     """
     if factor_fn not in PRICE_FACTOR_FNS:
         supported = list(PRICE_FACTOR_FNS.keys())
@@ -201,7 +231,14 @@ def run_backtest(
     portfolio_value = 1.0
     higher_is_better = HIGHER_IS_BETTER.get(factor_fn, True)
 
-    for i in range(len(rebalance_dates) - 1):
+    # Data quality counters
+    total_rebalances = len(rebalance_dates) - 1
+    skipped_rebalances = 0
+    total_ticker_slots = 0
+    ffill_count = 0
+    skip_count = 0
+
+    for i in range(total_rebalances):
         rebal_date = rebalance_dates[i]
         next_rebal = rebalance_dates[i + 1]
 
@@ -224,6 +261,7 @@ def run_backtest(
                 factor_values.append((ticker, val))
 
         if not factor_values:
+            skipped_rebalances += 1
             continue
 
         # Rank and select top N
@@ -237,19 +275,25 @@ def run_backtest(
         exec_date = _next_trading_day(rebal_date, sorted_dates)
         next_exec = _next_trading_day(next_rebal, sorted_dates)
         if exec_date is None or next_exec is None:
+            skipped_rebalances += 1
             continue
 
         # Calculate equal-weight return for the holding period
         period_returns: list[float] = []
         skipped_tickers: list[str] = []
         for ticker in selected:
+            total_ticker_slots += 1
             closes = ticker_close.get(ticker, {})
-            start_price = closes.get(exec_date)
-            end_price = closes.get(next_exec)
-            if start_price and end_price and start_price > 0:
+            start_price = _ffill_close(closes, exec_date, sorted_dates, ffill_limit)
+            end_price = _ffill_close(closes, next_exec, sorted_dates, ffill_limit)
+            if start_price is not None and end_price is not None and start_price > 0:
+                # Track whether forward-fill was used
+                if exec_date not in closes or next_exec not in closes:
+                    ffill_count += 1
                 ret = (end_price - start_price) / start_price
                 period_returns.append(ret)
             else:
+                skip_count += 1
                 skipped_tickers.append(ticker)
 
         avg_return = sum(period_returns) / len(period_returns) if period_returns else 0.0
@@ -284,4 +328,11 @@ def run_backtest(
         performance=performance,
         monthly_returns=monthly_returns,
         holdings_history=holdings_history,
+        data_quality=DataQuality(
+            total_rebalances=total_rebalances,
+            skipped_rebalances=skipped_rebalances,
+            total_ticker_slots=total_ticker_slots,
+            ffill_count=ffill_count,
+            skip_count=skip_count,
+        ),
     )
