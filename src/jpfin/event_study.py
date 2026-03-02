@@ -43,7 +43,7 @@ class PriceFactorProvider:
 
         cutoff = as_of.date() if isinstance(as_of, datetime) else as_of
         filtered_prices = [
-            p for p in pd.prices if (d := parse_date(p.get("date"))) is None or d <= cutoff
+            p for p in pd.prices if (d := parse_date(p.get("date"))) is not None and d <= cutoff
         ]
         if not filtered_prices:
             return None

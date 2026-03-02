@@ -87,7 +87,7 @@ def _filter_prices_by_date(
     """Filter price data to exclude dates after cutoff."""
     cutoff_date = cutoff.date() if isinstance(cutoff, datetime) else cutoff
     filtered = [
-        p for p in pd.prices if (d := parse_date(p.get("date"))) is None or d <= cutoff_date
+        p for p in pd.prices if (d := parse_date(p.get("date"))) is not None and d <= cutoff_date
     ]
     return PriceData(
         ticker=pd.ticker,
