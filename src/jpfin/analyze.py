@@ -10,6 +10,8 @@ from japan_finance_factors import FactorResult, compute_factors
 from japan_finance_factors._models import FinancialData, PriceData
 from japan_finance_factors.fetch import fetch_financial_data, fetch_price_data
 
+from jpfin._utils import parse_date
+
 
 async def _resolve_edinet_code(ticker: str) -> str | None:
     """Resolve ticker to EDINET code using japan-finance-codes."""
@@ -20,7 +22,7 @@ async def _resolve_edinet_code(ticker: str) -> str | None:
         result = registry.by_ticker(ticker)
         if result and result.edinet_code:
             return result.edinet_code
-    except (ImportError, Exception):
+    except Exception:
         pass
     return None
 
@@ -36,27 +38,50 @@ async def _fetch_financials(
 
     if year is not None:
         try:
-            return await fetch_financial_data(edinet_code, period=str(year))
-        except (ValueError, Exception):
+            return await fetch_financial_data(
+                edinet_code, period=str(year),
+            )
+        except Exception:
             return None
 
     # Auto-detect: try current year, then year-1, then year-2
     current_year = datetime.now().year
     for y in [current_year, current_year - 1, current_year - 2]:
         try:
-            fd = await fetch_financial_data(edinet_code, period=str(y))
-            return fd
-        except (ValueError, Exception):
+            return await fetch_financial_data(
+                edinet_code, period=str(y),
+            )
+        except Exception:
             continue
     return None
 
 
-async def _fetch_prices(ticker: str, lookback_days: int = 400) -> PriceData | None:
+async def _fetch_prices(
+    ticker: str, lookback_days: int = 400,
+) -> PriceData | None:
     """Fetch price data from yfinance."""
     try:
-        return await fetch_price_data(ticker, lookback_days=lookback_days)
+        return await fetch_price_data(
+            ticker, lookback_days=lookback_days,
+        )
     except Exception:
         return None
+
+
+def _filter_prices_by_date(
+    pd: PriceData, cutoff: datetime,
+) -> PriceData:
+    """Filter price data to exclude dates after cutoff."""
+    cutoff_date = (
+        cutoff.date() if isinstance(cutoff, datetime) else cutoff
+    )
+    filtered = [
+        p for p in pd.prices
+        if (d := parse_date(p.get("date"))) is None or d <= cutoff_date
+    ]
+    return PriceData(
+        ticker=pd.ticker, prices=filtered, market_cap=pd.market_cap,
+    )
 
 
 async def analyze_ticker(
@@ -76,34 +101,14 @@ async def analyze_ticker(
     edinet_code = await _resolve_edinet_code(ticker)
 
     # 2. Fetch data in parallel
-    fd_task = _fetch_financials(ticker, edinet_code, year)
-    pd_task = _fetch_prices(ticker)
-    fd, pd = await asyncio.gather(fd_task, pd_task)
+    fd, pd = await asyncio.gather(
+        _fetch_financials(ticker, edinet_code, year),
+        _fetch_prices(ticker),
+    )
 
     # 3. Enforce as_of: filter price data to exclude future dates
     if pd is not None:
-        cutoff = as_of.date() if isinstance(as_of, datetime) else as_of
-        filtered_prices = []
-        for p in pd.prices:
-            d = p.get("date")
-            if d is None:
-                filtered_prices.append(p)
-                continue
-            if isinstance(d, str):
-                try:
-                    from datetime import date as _date
-
-                    d_val = _date.fromisoformat(d)
-                except ValueError:
-                    filtered_prices.append(p)
-                    continue
-            elif isinstance(d, datetime):
-                d_val = d.date()
-            else:
-                d_val = d
-            if d_val <= cutoff:
-                filtered_prices.append(p)
-        pd = PriceData(ticker=pd.ticker, prices=filtered_prices, market_cap=pd.market_cap)
+        pd = _filter_prices_by_date(pd, as_of)
 
     # 4. Merge market_cap from yfinance into financial data
     if (
@@ -128,12 +133,17 @@ async def analyze_ticker(
         "ticker": ticker,
         "edinet_code": edinet_code,
         "as_of": as_of.isoformat(),
-        "period_end": fd.period_end.isoformat() if fd and fd.period_end else None,
+        "period_end": (
+            fd.period_end.isoformat()
+            if fd and fd.period_end else None
+        ),
         "data_sources": {
             "financials": fd is not None,
             "prices": pd is not None,
             "price_points": len(pd.prices) if pd else 0,
-            "market_cap": pd.market_cap if pd and pd.market_cap else None,
+            "market_cap": (
+                pd.market_cap if pd and pd.market_cap else None
+            ),
         },
         "factors": result.to_dict(),
         "observations": [
@@ -163,6 +173,8 @@ def analyze_ticker_sync(
     if loop is not None and loop.is_running():
         import concurrent.futures
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+        ) as pool:
             return pool.submit(asyncio.run, coro).result()
     return asyncio.run(coro)

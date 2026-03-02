@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
 from jpfin.analyze import analyze_ticker_sync
+
+logger = logging.getLogger(__name__)
 
 
 def screen_tickers(
@@ -16,39 +19,40 @@ def screen_tickers(
     as_of: datetime | None = None,
     ascending: bool = False,
 ) -> list[dict[str, Any]]:
-    """Compute factors for multiple tickers and rank by the specified factor.
+    """Compute factors for multiple tickers and rank by factor.
 
     Args:
         tickers: List of TSE stock codes.
-        factor: Factor ID to rank by (e.g., "roe", "ev_ebitda", "mom_3m").
+        factor: Factor ID to rank by (e.g., "roe", "mom_3m").
         year: Fiscal year for EDINET data.
         as_of: Point-in-time cutoff.
-        ascending: If True, rank ascending (lower is better, e.g., EV/EBITDA).
+        ascending: If True, lower is better (e.g., EV/EBITDA).
 
     Returns:
-        List of dicts sorted by factor value, each containing:
-        ticker, factor_value, rank, and all computed factors.
+        Sorted list of dicts with ticker, factor_value, rank.
     """
     as_of = as_of or datetime.now()
     results: list[dict[str, Any]] = []
 
     for ticker in tickers:
         try:
-            analysis = analyze_ticker_sync(ticker, year=year, as_of=as_of)
-            factor_value = analysis["factors"].get(factor)
+            analysis = analyze_ticker_sync(
+                ticker, year=year, as_of=as_of,
+            )
             results.append({
                 "ticker": ticker,
-                "factor_value": factor_value,
+                "factor_value": analysis["factors"].get(factor),
                 "factors": analysis["factors"],
                 "data_sources": analysis["data_sources"],
             })
-        except Exception as e:
+        except Exception:
+            logger.warning("Failed to analyze %s", ticker, exc_info=True)
             results.append({
                 "ticker": ticker,
                 "factor_value": None,
                 "factors": {},
                 "data_sources": {},
-                "error": str(e),
+                "error": "analysis failed",
             })
 
     # Sort: None values go to the end
@@ -60,7 +64,7 @@ def screen_tickers(
 
     results.sort(key=sort_key)
 
-    # Add ranks
+    # Add ranks (only for non-None values)
     rank = 1
     for r in results:
         if r["factor_value"] is not None:
