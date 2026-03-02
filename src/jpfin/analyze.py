@@ -79,12 +79,41 @@ async def analyze_ticker(
     pd_task = _fetch_prices(ticker)
     fd, pd = await asyncio.gather(fd_task, pd_task)
 
-    # 3. Merge market_cap from yfinance into financial data
-    if fd is not None and pd is not None and pd.market_cap is not None:
-        if fd.market_cap is None:
-            fd = fd.model_copy(update={"market_cap": pd.market_cap})
+    # 3. Enforce as_of: filter price data to exclude future dates
+    if pd is not None:
+        cutoff = as_of.date() if isinstance(as_of, datetime) else as_of
+        filtered_prices = []
+        for p in pd.prices:
+            d = p.get("date")
+            if d is None:
+                filtered_prices.append(p)
+                continue
+            if isinstance(d, str):
+                try:
+                    from datetime import date as _date
 
-    # 4. Compute factors
+                    d_val = _date.fromisoformat(d)
+                except ValueError:
+                    filtered_prices.append(p)
+                    continue
+            elif isinstance(d, datetime):
+                d_val = d.date()
+            else:
+                d_val = d
+            if d_val <= cutoff:
+                filtered_prices.append(p)
+        pd = PriceData(ticker=pd.ticker, prices=filtered_prices, market_cap=pd.market_cap)
+
+    # 4. Merge market_cap from yfinance into financial data
+    if (
+        fd is not None
+        and pd is not None
+        and pd.market_cap is not None
+        and fd.market_cap is None
+    ):
+        fd = fd.model_copy(update={"market_cap": pd.market_cap})
+
+    # 5. Compute factors
     kwargs: dict[str, Any] = {"as_of": as_of}
     if fd is not None:
         kwargs["financial_data"] = fd
@@ -93,7 +122,7 @@ async def analyze_ticker(
 
     result: FactorResult = compute_factors(**kwargs)
 
-    # 5. Build output
+    # 6. Build output
     return {
         "ticker": ticker,
         "edinet_code": edinet_code,
@@ -125,4 +154,14 @@ def analyze_ticker_sync(
     as_of: datetime | None = None,
 ) -> dict[str, Any]:
     """Synchronous wrapper for analyze_ticker."""
-    return asyncio.run(analyze_ticker(ticker, year=year, as_of=as_of))
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    coro = analyze_ticker(ticker, year=year, as_of=as_of)
+    if loop is not None and loop.is_running():
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    return asyncio.run(coro)

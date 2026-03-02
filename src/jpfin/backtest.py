@@ -6,6 +6,7 @@ Price data sourced from yfinance or user-provided CSV.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 from datetime import date, datetime
 from pathlib import Path
@@ -36,10 +37,8 @@ def load_prices_csv(path: str | Path) -> dict[str, PriceData]:
             for field in ("close", "open", "high", "low", "volume"):
                 val = row.get(field)
                 if val is not None:
-                    try:
+                    with contextlib.suppress(ValueError):
                         price_row[field] = float(val)
-                    except ValueError:
-                        pass
             ticker_prices.setdefault(ticker, []).append(price_row)
 
     return {
@@ -95,6 +94,8 @@ def run_backtest(
     }
     if factor_fn not in factor_fns:
         raise ValueError(f"Unsupported factor: {factor_fn}. Use one of {list(factor_fns.keys())}")
+    if top_n < 1:
+        raise ValueError(f"top_n must be >= 1, got {top_n}")
 
     compute_factor = factor_fns[factor_fn]
 
@@ -104,14 +105,10 @@ def run_backtest(
     for ticker, pd in price_data.items():
         closes_by_date: dict[date, float] = {}
         for p in pd._sorted_prices():
-            d = p.get("date")
+            d = _parse_date(p.get("date"))
             c = p.get("close")
             if d is None or c is None:
                 continue
-            if isinstance(d, str):
-                d = date.fromisoformat(d)
-            if isinstance(d, datetime):
-                d = d.date()
             closes_by_date[d] = float(c)
             all_dates.add(d)
         ticker_close[ticker] = closes_by_date
@@ -144,7 +141,8 @@ def run_backtest(
             # Filter prices up to rebalance date
             filtered_prices = [
                 p for p in pd._sorted_prices()
-                if _parse_date(p.get("date")) is not None and _parse_date(p.get("date")) <= rebal_date
+                if (d := _parse_date(p.get("date"))) is not None
+                and d <= rebal_date
             ]
             if not filtered_prices:
                 continue
@@ -156,24 +154,36 @@ def run_backtest(
         if not factor_values:
             continue
 
-        # Rank and select top N (higher is better for momentum)
-        reverse = factor_fn in ("mom_3m", "mom_12m")
-        factor_values.sort(key=lambda x: x[1], reverse=reverse)
+        # Rank and select top N
+        # Higher is better: momentum, max_drawdown (less negative = less risk)
+        # Lower is better: realized_vol (less volatile = less risk)
+        higher_is_better = factor_fn in ("mom_3m", "mom_12m", "max_drawdown_252d")
+        factor_values.sort(key=lambda x: x[1], reverse=higher_is_better)
         selected = [t for t, _ in factor_values[:top_n]]
 
         # Calculate equal-weight return for the holding period
+        # Use next trading day after signal date for execution (avoid lookahead)
+        exec_date = _next_trading_day(rebal_date, sorted_dates)
+        next_exec = _next_trading_day(next_rebal, sorted_dates)
+        if exec_date is None or next_exec is None:
+            continue
+
         period_returns: list[float] = []
+        skipped = 0
         for ticker in selected:
             closes = ticker_close.get(ticker, {})
-            start_price = closes.get(rebal_date)
-            end_price = closes.get(next_rebal)
+            start_price = closes.get(exec_date)
+            end_price = closes.get(next_exec)
             if start_price and end_price and start_price > 0:
                 period_returns.append((end_price - start_price) / start_price)
+            else:
+                skipped += 1
 
-        if period_returns:
-            avg_return = sum(period_returns) / len(period_returns)
-        else:
-            avg_return = 0.0
+        avg_return = (
+            sum(period_returns) / len(period_returns)
+            if period_returns
+            else 0.0
+        )
 
         portfolio_value *= (1 + avg_return)
 
@@ -237,6 +247,14 @@ def run_backtest(
         "monthly_returns": monthly_returns,
         "holdings_history": holdings_history,
     }
+
+
+def _next_trading_day(d: date, sorted_dates: list[date]) -> date | None:
+    """Return the first trading day strictly after d, or None."""
+    for td in sorted_dates:
+        if td > d:
+            return td
+    return None
 
 
 def _parse_date(d: Any) -> date | None:

@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import tempfile
 from datetime import date, timedelta
-from pathlib import Path
 
 from japan_finance_factors._models import PriceData
 
 from jpfin.backtest import _month_end_dates, load_prices_csv, run_backtest
 
 
-def _make_price_data(ticker: str, n_days: int = 300, start_price: float = 1000, step: float = 1.0) -> PriceData:
+def _make_price_data(
+    ticker: str,
+    n_days: int = 300,
+    start_price: float = 1000,
+    step: float = 1.0,
+) -> PriceData:
     return PriceData(
         ticker=ticker,
         prices=[
             {
-                "date": (date(2024, 1, 2) + timedelta(days=i)).isoformat(),
+                "date": (
+                    date(2024, 1, 2) + timedelta(days=i)
+                ).isoformat(),
                 "close": start_price + step * i,
             }
             for i in range(n_days)
@@ -36,7 +42,9 @@ class TestMonthEndDates:
         assert _month_end_dates([]) == []
 
     def test_single_month(self) -> None:
-        dates = [date(2024, 3, 1), date(2024, 3, 15), date(2024, 3, 31)]
+        dates = [
+            date(2024, 3, 1), date(2024, 3, 15), date(2024, 3, 31),
+        ]
         ends = _month_end_dates(dates)
         assert len(ends) == 1
         assert ends[0] == date(2024, 3, 31)
@@ -44,8 +52,15 @@ class TestMonthEndDates:
 
 class TestLoadPricesCsv:
     def test_basic(self) -> None:
-        csv_content = "date,ticker,close\n2024-01-01,7203,2000\n2024-01-02,7203,2010\n2024-01-01,6758,1500\n"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        csv_content = (
+            "date,ticker,close\n"
+            "2024-01-01,7203,2000\n"
+            "2024-01-02,7203,2010\n"
+            "2024-01-01,6758,1500\n"
+        )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False,
+        ) as f:
             f.write(csv_content)
             f.flush()
             data = load_prices_csv(f.name)
@@ -54,8 +69,13 @@ class TestLoadPricesCsv:
         assert len(data["7203"].prices) == 2
 
     def test_extra_columns(self) -> None:
-        csv_content = "date,ticker,open,high,low,close,volume\n2024-01-01,7203,1990,2010,1980,2000,100000\n"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        csv_content = (
+            "date,ticker,open,high,low,close,volume\n"
+            "2024-01-01,7203,1990,2010,1980,2000,100000\n"
+        )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False,
+        ) as f:
             f.write(csv_content)
             f.flush()
             data = load_prices_csv(f.name)
@@ -64,11 +84,10 @@ class TestLoadPricesCsv:
 
 class TestRunBacktest:
     def test_momentum_backtest(self) -> None:
-        # Create 3 tickers with different trends
         price_data = {
-            "A": _make_price_data("A", 300, 1000, step=2.0),  # Strong uptrend
-            "B": _make_price_data("B", 300, 1000, step=1.0),  # Moderate uptrend
-            "C": _make_price_data("C", 300, 1000, step=0.5),  # Weak uptrend
+            "A": _make_price_data("A", 300, 1000, step=2.0),
+            "B": _make_price_data("B", 300, 1000, step=1.0),
+            "C": _make_price_data("C", 300, 1000, step=0.5),
         }
         result = run_backtest(price_data, "mom_3m", top_n=2)
         assert "error" not in result
@@ -82,7 +101,10 @@ class TestRunBacktest:
 
     def test_insufficient_data(self) -> None:
         price_data = {
-            "A": PriceData(ticker="A", prices=[{"date": "2024-01-01", "close": 100}]),
+            "A": PriceData(
+                ticker="A",
+                prices=[{"date": "2024-01-01", "close": 100}],
+            ),
         }
         result = run_backtest(price_data, "mom_3m", top_n=1)
         assert "error" in result
@@ -101,6 +123,14 @@ class TestRunBacktest:
         }
         result = run_backtest(price_data, "mom_3m", top_n=1)
         assert len(result["holdings_history"]) > 0
-        # Top 1 by momentum should always be A (strongest trend)
         for h in result["holdings_history"]:
             assert "A" in h["holdings"]
+
+    def test_top_n_validation(self) -> None:
+        import pytest
+
+        price_data = {"A": _make_price_data("A")}
+        with pytest.raises(ValueError, match="top_n must be >= 1"):
+            run_backtest(price_data, "mom_3m", top_n=0)
+        with pytest.raises(ValueError, match="top_n must be >= 1"):
+            run_backtest(price_data, "mom_3m", top_n=-1)

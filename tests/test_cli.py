@@ -82,7 +82,14 @@ class TestAnalyzeCommand:
         runner = CliRunner()
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert "0.2.1" in result.output
+
+    @patch("jpfin.cli.analyze_ticker_sync")
+    def test_error_exits_nonzero(self, mock_analyze) -> None:
+        mock_analyze.side_effect = RuntimeError("API error")
+        runner = CliRunner()
+        result = runner.invoke(main, ["analyze", "9999"])
+        assert result.exit_code != 0
 
     def test_no_ticker_shows_error(self) -> None:
         runner = CliRunner()
