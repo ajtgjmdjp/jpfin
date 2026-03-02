@@ -11,6 +11,7 @@ from japan_finance_factors._models import PriceData
 from jpfin.backtest import (
     _ffill_close,
     _month_end_dates,
+    _rebalance_dates,
     _spearman_rank_corr,
     load_prices_csv,
     run_backtest,
@@ -56,6 +57,60 @@ class TestMonthEndDates:
         ends = _month_end_dates(dates)
         assert len(ends) == 1
         assert ends[0] == date(2024, 3, 31)
+
+
+class TestRebalanceDates:
+    def test_monthly(self) -> None:
+        dates = [date(2024, 1, i) for i in range(1, 32)]
+        dates += [date(2024, 2, i) for i in range(1, 29)]
+        ends = _rebalance_dates(dates, "monthly")
+        assert date(2024, 1, 31) in ends
+        assert date(2024, 2, 28) in ends
+
+    def test_weekly(self) -> None:
+        # 2024-01-01 is Monday, generate 3 weeks of dates
+        dates = [date(2024, 1, i) for i in range(1, 22)]
+        ends = _rebalance_dates(dates, "weekly")
+        assert len(ends) >= 2  # at least 2 week boundaries
+
+    def test_quarterly(self) -> None:
+        # Jan through June
+        dates = []
+        for m in range(1, 7):
+            for d in range(1, 29):
+                dates.append(date(2024, m, d))
+        dates.sort()
+        ends = _rebalance_dates(dates, "quarterly")
+        # March and June should have boundaries
+        assert any(d.month == 3 for d in ends)
+        assert any(d.month == 6 for d in ends)
+
+    def test_empty(self) -> None:
+        assert _rebalance_dates([], "monthly") == []
+
+    def test_invalid_freq(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported rebalance frequency"):
+            _rebalance_dates([date(2024, 1, 1)], "daily")
+
+    def test_weekly_backtest(self) -> None:
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1, rebalance_freq="weekly")
+        assert isinstance(result, BacktestResult)
+        # Weekly should have more rebalances than monthly
+        monthly = run_backtest(price_data, "mom_3m", top_n=1, rebalance_freq="monthly")
+        assert result.months >= monthly.months
+
+    def test_quarterly_backtest(self) -> None:
+        price_data = {
+            "A": _make_price_data("A", 400, step=2.0),
+            "B": _make_price_data("B", 400, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1, rebalance_freq="quarterly")
+        assert isinstance(result, BacktestResult)
+        assert result.months > 0
 
 
 class TestLoadPricesCsv:

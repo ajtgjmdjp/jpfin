@@ -74,6 +74,41 @@ def _month_end_dates(dates: list[date]) -> list[date]:
     return ends
 
 
+def _rebalance_dates(
+    dates: list[date],
+    freq: str = "monthly",
+) -> list[date]:
+    """Extract rebalance dates from a sorted list of trading dates.
+
+    Args:
+        dates: Sorted trading dates.
+        freq: ``"weekly"``, ``"monthly"``, or ``"quarterly"``.
+
+    Returns:
+        List of rebalance dates.
+    """
+    if not dates:
+        return []
+    if freq == "monthly":
+        return _month_end_dates(dates)
+    if freq == "quarterly":
+        ends: list[date] = []
+        for i in range(len(dates) - 1):
+            d0, d1 = dates[i], dates[i + 1]
+            if d0.month != d1.month and d0.month % 3 == 0:
+                ends.append(d0)
+        ends.append(dates[-1])
+        return ends
+    if freq == "weekly":
+        ends = []
+        for i in range(len(dates) - 1):
+            if dates[i].isocalendar()[1] != dates[i + 1].isocalendar()[1]:
+                ends.append(dates[i])
+        ends.append(dates[-1])
+        return ends
+    raise ValueError(f"Unsupported rebalance frequency: {freq}. Use weekly/monthly/quarterly")
+
+
 def _next_trading_day(
     d: date,
     sorted_dates: list[date],
@@ -203,12 +238,13 @@ def run_backtest(
     start_date: date | None = None,
     end_date: date | None = None,
     ffill_limit: int = 5,
+    rebalance_freq: str = "monthly",
 ) -> BacktestResult:
-    """Run a simple long-only monthly rebalance backtest.
+    """Run a simple long-only rebalance backtest.
 
-    Strategy: At each month-end, compute the specified price-based
-    factor for all tickers, select top N, hold equal-weight for the
-    next month.
+    Strategy: At each rebalance date, compute the specified price-based
+    factor for all tickers, select top N, hold equal-weight until the
+    next rebalance.
 
     Args:
         price_data: Dict mapping ticker → PriceData.
@@ -219,6 +255,7 @@ def run_backtest(
         ffill_limit: Max trading days to look back for execution
             prices when no close exists on the exact date. Set to 0
             to disable forward-fill (strict mode).
+        rebalance_freq: ``"weekly"``, ``"monthly"``, or ``"quarterly"``.
 
     Returns:
         BacktestResult with performance metrics and return series.
@@ -258,9 +295,9 @@ def run_backtest(
     if len(sorted_dates) < 2:
         raise BacktestError("Insufficient date range for backtest")
 
-    rebalance_dates = _month_end_dates(sorted_dates)
+    rebalance_dates = _rebalance_dates(sorted_dates, rebalance_freq)
     if len(rebalance_dates) < 2:
-        raise BacktestError("Need at least 2 months of data")
+        raise BacktestError("Need at least 2 rebalance periods")
 
     # Run backtest
     holdings_history: list[HoldingsPeriod] = []
