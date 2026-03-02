@@ -301,5 +301,167 @@ def event_study(
         click.echo()
 
 
+@main.command()
+@click.option(
+    "--tickers",
+    "-t",
+    default=None,
+    help="Comma-separated ticker codes (e.g., 7203,6758,9984).",
+)
+@click.option(
+    "--universe",
+    "-u",
+    "universe_name",
+    default=None,
+    help="Built-in index snapshot (nikkei225, topix_core30).",
+)
+@click.option(
+    "--universe-file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Text file with one ticker per line.",
+)
+@click.option(
+    "--sector",
+    default=None,
+    help="Industry sector from EDINET (e.g., '電気機器').",
+)
+@click.option(
+    "--period",
+    "-p",
+    default="2y",
+    help="yfinance period (1y, 2y, 5y, max).",
+)
+@click.option(
+    "--out",
+    "-o",
+    "output_path",
+    default="prices.csv",
+    type=click.Path(),
+    help="Output CSV path.",
+)
+@click.option(
+    "--update",
+    is_flag=True,
+    help="Incremental update of existing CSV.",
+)
+@click.option(
+    "--batch-size",
+    default=20,
+    type=int,
+    help="Tickers per yfinance request.",
+)
+def fetch(
+    tickers: str | None,
+    universe_name: str | None,
+    universe_file: str | None,
+    sector: str | None,
+    period: str,
+    output_path: str,
+    update: bool,
+    batch_size: int,
+) -> None:
+    """Fetch price data from yfinance and save to CSV.
+
+    The output CSV is compatible with `jpfin backtest --csv`.
+
+    Examples:
+
+      jpfin fetch --tickers 7203,6758,9984 --period 2y --out prices.csv
+
+      jpfin fetch --universe nikkei225 --period 1y --out nk225.csv
+
+      jpfin fetch --sector 電気機器 --out electronics.csv
+
+      jpfin fetch --update --out prices.csv
+    """
+    from jpfin.fetch import fetch_prices, save_prices_csv, update_prices_csv
+    from jpfin.universe import load_universe
+
+    if update:
+        ticker_list = tickers.split(",") if tickers else None
+        try:
+            new_rows = update_prices_csv(
+                output_path,
+                tickers=ticker_list,
+                batch_size=batch_size,
+            )
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        click.echo(f"  Updated {output_path}: {new_rows} new rows added.", err=True)
+        return
+
+    # Resolve universe
+    ticker_list_parsed = tickers.split(",") if tickers else None
+    try:
+        universe = load_universe(
+            name=universe_name,
+            file=universe_file,
+            tickers=ticker_list_parsed,
+            sector=sector,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    # Print warnings
+    for warning in universe.warnings:
+        click.echo(f"  Warning: {warning}", err=True)
+
+    click.echo(
+        f"  Universe: {universe.source_label} ({len(universe.tickers)} tickers)",
+        err=True,
+    )
+
+    # Fetch
+    try:
+        data = fetch_prices(
+            universe.tickers,
+            period=period,
+            batch_size=batch_size,
+        )
+    except Exception as e:
+        click.echo(f"Error fetching data: {e}", err=True)
+        sys.exit(1)
+
+    if not data:
+        click.echo("  No data fetched.", err=True)
+        sys.exit(1)
+
+    rows = save_prices_csv(data, output_path)
+    click.echo(
+        f"  Saved {len(data)} tickers, {rows} rows to {output_path}",
+        err=True,
+    )
+
+
+@main.group()
+def universe() -> None:
+    """Manage stock universes."""
+
+
+@universe.command("list")
+def universe_list() -> None:
+    """List available built-in universes and sectors.
+
+    Examples:
+
+      jpfin universe list
+    """
+    from jpfin.universe import list_sectors, list_universes
+
+    indices = list_universes()
+    click.echo("\n  Built-in index snapshots:")
+    for name in indices:
+        click.echo(f"    {name}")
+
+    sectors = list_sectors()
+    click.echo(f"\n  Available sectors ({len(sectors)}):")
+    for s in sectors:
+        click.echo(f"    {s}")
+    click.echo()
+
+
 if __name__ == "__main__":
     main()
