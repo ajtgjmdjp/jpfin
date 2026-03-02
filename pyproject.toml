@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jpfin"
-version = "0.3.0"
+version = "0.3.1"
 description = "Unified CLI for Japanese equity factor analysis"
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "japan-finance-factors[all]>=0.2.1",
-    "japan-finance-codes>=0.1.1",
+    "japan-finance-codes>=0.2.0",
     "click>=8.0",
 ]
 
@@ -34,7 +34,7 @@ Homepage = "https://github.com/ajtgjmdjp/jpfin"
 Repository = "https://github.com/ajtgjmdjp/jpfin"
 
 [tool.hatch.build.targets.sdist]
-exclude = [".env", ".env.*", ".claude/"]
+exclude = [".env", ".env.*", ".claude/", ".github/"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jpfin"]
@@ -49,8 +49,23 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.uv.sources]
+japan-finance-codes = { path = "../japan-finance-codes", editable = true }
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+packages = ["jpfin"]
+mypy_path = ["src"]
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = ["japan_finance_factors", "japan_finance_factors.*", "japan_finance_codes", "japan_finance_codes.*"]
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "ruff>=0.8",
+    "mypy>=1.0",
 ]

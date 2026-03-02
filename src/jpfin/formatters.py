@@ -27,9 +27,9 @@ def format_table(result: dict[str, Any]) -> str:
     if ds.get("market_cap"):
         mcap = ds["market_cap"]
         if mcap >= 1e12:
-            sources.append(f"market_cap: {mcap/1e12:.1f}T JPY")
+            sources.append(f"market_cap: {mcap / 1e12:.1f}T JPY")
         else:
-            sources.append(f"market_cap: {mcap/1e9:.0f}B JPY")
+            sources.append(f"market_cap: {mcap / 1e9:.0f}B JPY")
     lines.append(f"  sources: {', '.join(sources) if sources else 'none'}")
     lines.append(f"{'=' * 60}")
 

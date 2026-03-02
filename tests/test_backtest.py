@@ -20,9 +20,7 @@ def _make_price_data(
         ticker=ticker,
         prices=[
             {
-                "date": (
-                    date(2024, 1, 2) + timedelta(days=i)
-                ).isoformat(),
+                "date": (date(2024, 1, 2) + timedelta(days=i)).isoformat(),
                 "close": start_price + step * i,
             }
             for i in range(n_days)
@@ -43,7 +41,9 @@ class TestMonthEndDates:
 
     def test_single_month(self) -> None:
         dates = [
-            date(2024, 3, 1), date(2024, 3, 15), date(2024, 3, 31),
+            date(2024, 3, 1),
+            date(2024, 3, 15),
+            date(2024, 3, 31),
         ]
         ends = _month_end_dates(dates)
         assert len(ends) == 1
@@ -53,13 +53,12 @@ class TestMonthEndDates:
 class TestLoadPricesCsv:
     def test_basic(self) -> None:
         csv_content = (
-            "date,ticker,close\n"
-            "2024-01-01,7203,2000\n"
-            "2024-01-02,7203,2010\n"
-            "2024-01-01,6758,1500\n"
+            "date,ticker,close\n2024-01-01,7203,2000\n2024-01-02,7203,2010\n2024-01-01,6758,1500\n"
         )
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False,
+            mode="w",
+            suffix=".csv",
+            delete=False,
         ) as f:
             f.write(csv_content)
             f.flush()
@@ -70,11 +69,12 @@ class TestLoadPricesCsv:
 
     def test_extra_columns(self) -> None:
         csv_content = (
-            "date,ticker,open,high,low,close,volume\n"
-            "2024-01-01,7203,1990,2010,1980,2000,100000\n"
+            "date,ticker,open,high,low,close,volume\n2024-01-01,7203,1990,2010,1980,2000,100000\n"
         )
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False,
+            mode="w",
+            suffix=".csv",
+            delete=False,
         ) as f:
             f.write(csv_content)
             f.flush()

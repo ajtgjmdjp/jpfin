@@ -18,12 +18,20 @@ async def _resolve_edinet_code(ticker: str) -> str | None:
     try:
         from japan_finance_codes import CompanyRegistry
 
-        registry = await CompanyRegistry.create()
+        registry = CompanyRegistry.create()
         result = registry.by_ticker(ticker)
         if result and result.edinet_code:
             return result.edinet_code
-    except Exception:
+    except ImportError:
         pass
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "EDINET code resolution failed for %s: %s",
+            ticker,
+            exc,
+        )
     return None
 
 
@@ -39,7 +47,8 @@ async def _fetch_financials(
     if year is not None:
         try:
             return await fetch_financial_data(
-                edinet_code, period=str(year),
+                edinet_code,
+                period=str(year),
             )
         except Exception:
             return None
@@ -49,7 +58,8 @@ async def _fetch_financials(
     for y in [current_year, current_year - 1, current_year - 2]:
         try:
             return await fetch_financial_data(
-                edinet_code, period=str(y),
+                edinet_code,
+                period=str(y),
             )
         except Exception:
             continue
@@ -57,30 +67,32 @@ async def _fetch_financials(
 
 
 async def _fetch_prices(
-    ticker: str, lookback_days: int = 400,
+    ticker: str,
+    lookback_days: int = 400,
 ) -> PriceData | None:
     """Fetch price data from yfinance."""
     try:
         return await fetch_price_data(
-            ticker, lookback_days=lookback_days,
+            ticker,
+            lookback_days=lookback_days,
         )
     except Exception:
         return None
 
 
 def _filter_prices_by_date(
-    pd: PriceData, cutoff: datetime,
+    pd: PriceData,
+    cutoff: datetime,
 ) -> PriceData:
     """Filter price data to exclude dates after cutoff."""
-    cutoff_date = (
-        cutoff.date() if isinstance(cutoff, datetime) else cutoff
-    )
+    cutoff_date = cutoff.date() if isinstance(cutoff, datetime) else cutoff
     filtered = [
-        p for p in pd.prices
-        if (d := parse_date(p.get("date"))) is None or d <= cutoff_date
+        p for p in pd.prices if (d := parse_date(p.get("date"))) is None or d <= cutoff_date
     ]
     return PriceData(
-        ticker=pd.ticker, prices=filtered, market_cap=pd.market_cap,
+        ticker=pd.ticker,
+        prices=filtered,
+        market_cap=pd.market_cap,
     )
 
 
@@ -111,12 +123,7 @@ async def analyze_ticker(
         pd = _filter_prices_by_date(pd, as_of)
 
     # 4. Merge market_cap from yfinance into financial data
-    if (
-        fd is not None
-        and pd is not None
-        and pd.market_cap is not None
-        and fd.market_cap is None
-    ):
+    if fd is not None and pd is not None and pd.market_cap is not None and fd.market_cap is None:
         fd = fd.model_copy(update={"market_cap": pd.market_cap})
 
     # 5. Compute factors
@@ -133,17 +140,12 @@ async def analyze_ticker(
         "ticker": ticker,
         "edinet_code": edinet_code,
         "as_of": as_of.isoformat(),
-        "period_end": (
-            fd.period_end.isoformat()
-            if fd and fd.period_end else None
-        ),
+        "period_end": (fd.period_end.isoformat() if fd and fd.period_end else None),
         "data_sources": {
             "financials": fd is not None,
             "prices": pd is not None,
             "price_points": len(pd.prices) if pd else 0,
-            "market_cap": (
-                pd.market_cap if pd and pd.market_cap else None
-            ),
+            "market_cap": (pd.market_cap if pd and pd.market_cap else None),
         },
         "factors": result.to_dict(),
         "observations": [

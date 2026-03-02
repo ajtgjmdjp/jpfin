@@ -56,8 +56,7 @@ def load_prices_csv(path: str | Path) -> dict[str, PriceData]:
             ticker_prices.setdefault(ticker, []).append(price_row)
 
     return {
-        ticker: PriceData(ticker=ticker, prices=prices)
-        for ticker, prices in ticker_prices.items()
+        ticker: PriceData(ticker=ticker, prices=prices) for ticker, prices in ticker_prices.items()
     }
 
 
@@ -74,7 +73,8 @@ def _month_end_dates(dates: list[date]) -> list[date]:
 
 
 def _next_trading_day(
-    d: date, sorted_dates: list[date],
+    d: date,
+    sorted_dates: list[date],
 ) -> date | None:
     """Return the first trading day strictly after d using bisect."""
     idx = bisect.bisect_right(sorted_dates, d)
@@ -107,7 +107,7 @@ def _compute_performance(
 
     if n_months >= 2:
         monthly_vol = statistics.stdev(returns)
-        ann_vol = monthly_vol * (12 ** 0.5)
+        ann_vol = monthly_vol * (12**0.5)
         sharpe = cagr / ann_vol if ann_vol > 0 else 0.0
     else:
         ann_vol = 0.0
@@ -170,9 +170,7 @@ def run_backtest(
     }
     if factor_fn not in factor_fns:
         supported = list(factor_fns.keys())
-        raise ValueError(
-            f"Unsupported factor: {factor_fn}. Use one of {supported}"
-        )
+        raise ValueError(f"Unsupported factor: {factor_fn}. Use one of {supported}")
     if top_n < 1:
         raise ValueError(f"top_n must be >= 1, got {top_n}")
 
@@ -219,14 +217,15 @@ def run_backtest(
         factor_values: list[tuple[str, float]] = []
         for ticker, pd in price_data.items():
             filtered_prices = [
-                p for p in pd._sorted_prices()
-                if (d := parse_date(p.get("date"))) is not None
-                and d <= rebal_date
+                p
+                for p in pd._sorted_prices()
+                if (d := parse_date(p.get("date"))) is not None and d <= rebal_date
             ]
             if not filtered_prices:
                 continue
             filtered_pd = PriceData(
-                ticker=ticker, prices=filtered_prices,
+                ticker=ticker,
+                prices=filtered_prices,
             )
             val = compute_factor(filtered_pd)
             if val is not None:
@@ -237,7 +236,8 @@ def run_backtest(
 
         # Rank and select top N
         factor_values.sort(
-            key=lambda x: x[1], reverse=higher_is_better,
+            key=lambda x: x[1],
+            reverse=higher_is_better,
         )
         selected = [t for t, _ in factor_values[:top_n]]
 
@@ -260,30 +260,26 @@ def run_backtest(
             else:
                 skipped_tickers.append(ticker)
 
-        avg_return = (
-            sum(period_returns) / len(period_returns)
-            if period_returns
-            else 0.0
-        )
+        avg_return = sum(period_returns) / len(period_returns) if period_returns else 0.0
         portfolio_value *= 1 + avg_return
 
         period_info: dict[str, Any] = {
             "date": rebal_date.isoformat(),
             "holdings": selected,
-            "factor_values": {
-                t: v for t, v in factor_values[:top_n]
-            },
+            "factor_values": {t: v for t, v in factor_values[:top_n]},
         }
         if skipped_tickers:
             period_info["skipped"] = skipped_tickers
         holdings_history.append(period_info)
 
-        monthly_returns.append({
-            "period_start": rebal_date.isoformat(),
-            "period_end": next_rebal.isoformat(),
-            "return": avg_return,
-            "cumulative": portfolio_value,
-        })
+        monthly_returns.append(
+            {
+                "period_start": rebal_date.isoformat(),
+                "period_end": next_rebal.isoformat(),
+                "return": avg_return,
+                "cumulative": portfolio_value,
+            }
+        )
 
     returns = [m["return"] for m in monthly_returns]
     performance = _compute_performance(returns)
@@ -291,10 +287,7 @@ def run_backtest(
     return {
         "factor": factor_fn,
         "top_n": top_n,
-        "period": (
-            f"{rebalance_dates[0].isoformat()}"
-            f" ~ {rebalance_dates[-1].isoformat()}"
-        ),
+        "period": (f"{rebalance_dates[0].isoformat()} ~ {rebalance_dates[-1].isoformat()}"),
         "months": len(returns),
         "performance": performance,
         "monthly_returns": monthly_returns,

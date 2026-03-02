@@ -37,28 +37,34 @@ def screen_tickers(
     for ticker in tickers:
         try:
             analysis = analyze_ticker_sync(
-                ticker, year=year, as_of=as_of,
+                ticker,
+                year=year,
+                as_of=as_of,
             )
-            results.append({
-                "ticker": ticker,
-                "factor_value": analysis["factors"].get(factor),
-                "factors": analysis["factors"],
-                "data_sources": analysis["data_sources"],
-            })
+            results.append(
+                {
+                    "ticker": ticker,
+                    "factor_value": analysis["factors"].get(factor),
+                    "factors": analysis["factors"],
+                    "data_sources": analysis["data_sources"],
+                }
+            )
         except Exception:
             logger.warning("Failed to analyze %s", ticker, exc_info=True)
-            results.append({
-                "ticker": ticker,
-                "factor_value": None,
-                "factors": {},
-                "data_sources": {},
-                "error": "analysis failed",
-            })
+            results.append(
+                {
+                    "ticker": ticker,
+                    "factor_value": None,
+                    "factors": {},
+                    "data_sources": {},
+                    "error": "analysis failed",
+                }
+            )
 
     # Sort: None values go to the end
-    def sort_key(r: dict) -> tuple[int, float]:
+    def sort_key(r: dict[str, object]) -> tuple[int, float]:
         v = r["factor_value"]
-        if v is None:
+        if not isinstance(v, (int, float)):
             return (1, 0.0)
         return (0, v if ascending else -v)
 

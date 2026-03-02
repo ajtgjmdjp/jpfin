@@ -14,16 +14,21 @@ from jpfin.analyze import _resolve_edinet_code, analyze_ticker_sync
 class TestResolveEdinetCode:
     def test_resolve_success(self) -> None:
         mock_company = type(
-            "C", (), {"edinet_code": "E02144"},
+            "C",
+            (),
+            {"edinet_code": "E02144"},
         )()
-        mock_registry = MagicMock(by_ticker=MagicMock(
-            return_value=mock_company,
-        ))
-        mock_cls = AsyncMock()
-        mock_cls.create = AsyncMock(return_value=mock_registry)
+        mock_registry = MagicMock(
+            by_ticker=MagicMock(
+                return_value=mock_company,
+            )
+        )
+        mock_cls = MagicMock()
+        mock_cls.create = MagicMock(return_value=mock_registry)
         mock_mod = MagicMock(CompanyRegistry=mock_cls)
         with patch.dict(
-            "sys.modules", {"japan_finance_codes": mock_mod},
+            "sys.modules",
+            {"japan_finance_codes": mock_mod},
         ):
             result = asyncio.run(_resolve_edinet_code("7203"))
             assert result == "E02144"
@@ -32,11 +37,12 @@ class TestResolveEdinetCode:
         mock_registry = MagicMock(
             by_ticker=MagicMock(return_value=None),
         )
-        mock_cls = AsyncMock()
-        mock_cls.create = AsyncMock(return_value=mock_registry)
+        mock_cls = MagicMock()
+        mock_cls.create = MagicMock(return_value=mock_registry)
         mock_mod = MagicMock(CompanyRegistry=mock_cls)
         with patch.dict(
-            "sys.modules", {"japan_finance_codes": mock_mod},
+            "sys.modules",
+            {"japan_finance_codes": mock_mod},
         ):
             assert asyncio.run(_resolve_edinet_code("XXXX")) is None
 
@@ -60,9 +66,7 @@ class TestAnalyzeTickerSync:
             ticker="7203",
             prices=[
                 {
-                    "date": (
-                        date(2024, 1, 1) + timedelta(days=i)
-                    ).isoformat(),
+                    "date": (date(2024, 1, 1) + timedelta(days=i)).isoformat(),
                     "close": 2000 + i,
                 }
                 for i in range(300)
@@ -70,7 +74,8 @@ class TestAnalyzeTickerSync:
         )
 
         result = analyze_ticker_sync(
-            "7203", as_of=datetime(2025, 7, 1),
+            "7203",
+            as_of=datetime(2025, 7, 1),
         )
         assert result["ticker"] == "7203"
         assert result["data_sources"]["prices"] is True
@@ -94,7 +99,8 @@ class TestAnalyzeTickerSync:
         mock_price.return_value = None
 
         result = analyze_ticker_sync(
-            "9999", as_of=datetime(2025, 7, 1),
+            "9999",
+            as_of=datetime(2025, 7, 1),
         )
         assert result["ticker"] == "9999"
         assert len(result["observations"]) == 0

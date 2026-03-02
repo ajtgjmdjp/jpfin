@@ -20,12 +20,18 @@ def main() -> None:
 @main.command()
 @click.argument("tickers", nargs=-1, required=True)
 @click.option(
-    "--year", "-y", type=int, default=None,
+    "--year",
+    "-y",
+    type=int,
+    default=None,
     help="Fiscal year (e.g., 2024). Auto-detect if omitted.",
 )
 @click.option(
-    "--format", "-f", "fmt",
-    type=click.Choice(["table", "json"]), default="table",
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
     help="Output format.",
 )
 def analyze(tickers: tuple[str, ...], year: int | None, fmt: str) -> None:
@@ -65,17 +71,24 @@ def analyze(tickers: tuple[str, ...], year: int | None, fmt: str) -> None:
 @main.command()
 @click.argument("tickers", nargs=-1, required=True)
 @click.option(
-    "--factor", "-s", default="roe",
+    "--factor",
+    "-s",
+    default="roe",
     help="Factor to rank by (e.g., roe, ev_ebitda, mom_3m).",
 )
 @click.option("--year", "-y", type=int, default=None, help="Fiscal year.")
 @click.option(
-    "--ascending", "-a", is_flag=True,
+    "--ascending",
+    "-a",
+    is_flag=True,
     help="Rank ascending (lower is better).",
 )
 @click.option(
-    "--format", "-f", "fmt",
-    type=click.Choice(["table", "json"]), default="table",
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
 )
 def screen(
     tickers: tuple[str, ...],
@@ -95,26 +108,22 @@ def screen(
     from jpfin.screen import screen_tickers
 
     results = screen_tickers(
-        list(tickers), factor, year=year, ascending=ascending,
+        list(tickers),
+        factor,
+        year=year,
+        ascending=ascending,
     )
 
     if fmt == "json":
         click.echo(format_json(results))
     else:
-        click.echo(
-            f"\n  Screening by: {factor}"
-            f" ({'asc' if ascending else 'desc'})"
-        )
+        click.echo(f"\n  Screening by: {factor} ({'asc' if ascending else 'desc'})")
         click.echo(f"  {'Rank':>4s}  {'Ticker':>8s}  {'Value':>12s}")
-        click.echo(f"  {'-'*4}  {'-'*8}  {'-'*12}")
+        click.echo(f"  {'-' * 4}  {'-' * 8}  {'-' * 12}")
         for r in results:
-            rank = (
-                f"{r['rank']:>4d}" if r["rank"] is not None else "   -"
-            )
+            rank = f"{r['rank']:>4d}" if r["rank"] is not None else "   -"
             val = (
-                f"{r['factor_value']:>12.4f}"
-                if r["factor_value"] is not None
-                else "         N/A"
+                f"{r['factor_value']:>12.4f}" if r["factor_value"] is not None else "         N/A"
             )
             click.echo(f"  {rank}  {r['ticker']:>8s}  {val}")
         click.echo()
@@ -122,21 +131,31 @@ def screen(
 
 @main.command()
 @click.option(
-    "--csv", "csv_path", required=True,
+    "--csv",
+    "csv_path",
+    required=True,
     type=click.Path(exists=True),
     help="CSV file with price data (date,ticker,close).",
 )
 @click.option(
-    "--factor", "-s", default="mom_3m",
+    "--factor",
+    "-s",
+    default="mom_3m",
     help="Price-based factor (mom_3m, mom_12m, realized_vol_60d).",
 )
 @click.option(
-    "--top", "top_n", default=5, type=int,
+    "--top",
+    "top_n",
+    default=5,
+    type=int,
     help="Number of top tickers to hold.",
 )
 @click.option(
-    "--format", "-f", "fmt",
-    type=click.Choice(["table", "json"]), default="table",
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
 )
 def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
     """Run a simple factor backtest on historical price data.
@@ -151,7 +170,8 @@ def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
 
     price_data = load_prices_csv(csv_path)
     click.echo(
-        f"  Loaded {len(price_data)} tickers from {csv_path}", err=True,
+        f"  Loaded {len(price_data)} tickers from {csv_path}",
+        err=True,
     )
 
     try:
