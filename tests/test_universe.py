@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import warnings
 
 import pytest
 
@@ -121,6 +122,21 @@ class TestLoadUniverse:
 
     def test_priority_tickers_over_name(self) -> None:
         """Explicit tickers take priority over index name."""
-        result = load_universe(tickers=["7203"], name="nikkei225")
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = load_universe(tickers=["7203"], name="nikkei225")
         assert result.source_type == "explicit"
         assert len(result.tickers) == 1
+        # Should warn about multiple sources
+        assert len(w) == 1
+        assert "Multiple universe sources" in str(w[0].message)
+
+    def test_multiple_sources_warns(self) -> None:
+        """Warning is emitted when multiple sources are specified."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = load_universe(tickers=["7203"], sector="電気機器")
+        assert result.source_type == "explicit"
+        assert len(w) == 1
+        assert "tickers" in str(w[0].message)
+        assert "sector" in str(w[0].message)

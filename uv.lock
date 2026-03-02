@@ -882,13 +882,14 @@ wheels = [
 
 [[package]]
 name = "jpfin"
-version = "0.5.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "japan-finance-codes" },
     { name = "japan-finance-events" },
     { name = "japan-finance-factors", extra = ["all"] },
+    { name = "yfinance" },
 ]
 
 [package.dev-dependencies]
@@ -905,6 +906,7 @@ requires-dist = [
     { name = "japan-finance-codes", specifier = ">=0.2.0" },
     { name = "japan-finance-events", specifier = ">=0.1.0" },
     { name = "japan-finance-factors", extras = ["all"], specifier = ">=0.2.1" },
+    { name = "yfinance", specifier = ">=0.2" },
 ]
 
 [package.metadata.requires-dev]

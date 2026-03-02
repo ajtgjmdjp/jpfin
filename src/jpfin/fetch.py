@@ -62,6 +62,8 @@ def fetch_prices(
 
     if not tickers:
         return {}
+    if batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
 
     yf_tickers = [_to_yf_ticker(t) for t in tickers]
     result: dict[str, PriceData] = {}
@@ -239,11 +241,12 @@ def update_prices_csv(
     # Determine start dates per ticker
     max_dates = _read_existing_max_dates(path)
 
-    # Find the earliest "next day" across all tickers to fetch from
+    # Find the earliest "next day" across requested tickers only
     from datetime import timedelta
 
-    if max_dates:
-        earliest_next = min(max_dates.values()) + timedelta(days=1)
+    relevant_dates = [max_dates[t] for t in tickers if t in max_dates]
+    if relevant_dates:
+        earliest_next = min(relevant_dates) + timedelta(days=1)
         fetch_kwargs.setdefault("start_date", earliest_next.isoformat())
 
     # Fetch new data

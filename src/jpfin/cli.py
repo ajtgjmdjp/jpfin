@@ -348,7 +348,7 @@ def event_study(
 @click.option(
     "--batch-size",
     default=20,
-    type=int,
+    type=click.IntRange(1),
     help="Tickers per yfinance request.",
 )
 def fetch(
@@ -378,12 +378,30 @@ def fetch(
     from jpfin.fetch import fetch_prices, save_prices_csv, update_prices_csv
     from jpfin.universe import load_universe
 
+    # Resolve universe (used for both fetch and update)
+    ticker_list_parsed = tickers.split(",") if tickers else None
+    has_universe_source = any([ticker_list_parsed, universe_name, universe_file, sector])
+
     if update:
-        ticker_list = tickers.split(",") if tickers else None
+        # For --update, resolve tickers from universe options if provided,
+        # otherwise update all tickers already in the CSV.
+        resolved_tickers: list[str] | None = None
+        if has_universe_source:
+            try:
+                univ = load_universe(
+                    name=universe_name,
+                    file=universe_file,
+                    tickers=ticker_list_parsed,
+                    sector=sector,
+                )
+            except ValueError as e:
+                click.echo(f"Error: {e}", err=True)
+                sys.exit(1)
+            resolved_tickers = univ.tickers
         try:
             new_rows = update_prices_csv(
                 output_path,
-                tickers=ticker_list,
+                tickers=resolved_tickers,
                 batch_size=batch_size,
             )
         except Exception as e:
@@ -392,8 +410,14 @@ def fetch(
         click.echo(f"  Updated {output_path}: {new_rows} new rows added.", err=True)
         return
 
-    # Resolve universe
-    ticker_list_parsed = tickers.split(",") if tickers else None
+    if not has_universe_source:
+        click.echo(
+            "Error: No universe specified. "
+            "Use --tickers, --universe-file, --sector, or --universe.",
+            err=True,
+        )
+        sys.exit(1)
+
     try:
         universe = load_universe(
             name=universe_name,

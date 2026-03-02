@@ -9,6 +9,7 @@ Three-tier universe resolution:
 from __future__ import annotations
 
 import json
+import warnings
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,21 @@ def load_universe(
     Raises:
         ValueError: If no universe source is specified or name is unknown.
     """
+    # Warn if multiple sources are specified
+    sources = [
+        ("tickers", tickers),
+        ("file", file),
+        ("sector", sector),
+        ("name", name),
+    ]
+    active = [label for label, val in sources if val]
+    if len(active) > 1:
+        warnings.warn(
+            f"Multiple universe sources specified ({', '.join(active)}). "
+            f"Using priority: tickers > file > sector > name.",
+            stacklevel=2,
+        )
+
     if tickers:
         return UniverseResult(
             tickers=_clean_tickers(tickers),
