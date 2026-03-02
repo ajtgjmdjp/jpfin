@@ -16,6 +16,7 @@ from japan_finance_factors._models import PriceData
 from japan_finance_factors.fetch import fetch_price_data
 
 from jpfin._utils import parse_date
+from jpfin.factor_registry import compute_price_factors
 from jpfin.fusion import EventFactorFusion
 
 
@@ -49,24 +50,7 @@ class PriceFactorProvider:
             return None
 
         filtered = PriceData(ticker=pd.ticker, prices=filtered_prices)
-
-        from japan_finance_factors.factors import momentum, risk
-
-        all_factors: dict[str, Any] = {
-            "mom_3m": momentum.mom_3m,
-            "mom_12m": momentum.mom_12m,
-            "realized_vol_60d": risk.realized_vol_60d,
-            "max_drawdown_252d": risk.max_drawdown_252d,
-        }
-
-        requested = factors or list(all_factors.keys())
-        result: dict[str, float | None] = {}
-        for name in requested:
-            fn = all_factors.get(name)
-            if fn is not None:
-                result[name] = fn(filtered)
-            else:
-                result[name] = None
+        result = compute_price_factors(filtered, factors=factors)
         return result if any(v is not None for v in result.values()) else None
 
 

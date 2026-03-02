@@ -17,14 +17,7 @@ from typing import Any
 from japan_finance_factors._models import PriceData
 
 from jpfin._utils import parse_date
-
-# Factor ranking direction: True = higher value is better
-_HIGHER_IS_BETTER: dict[str, bool] = {
-    "mom_3m": True,
-    "mom_12m": True,
-    "max_drawdown_252d": True,  # less negative = less risk
-    "realized_vol_60d": False,  # lower vol = less risk
-}
+from jpfin.factor_registry import HIGHER_IS_BETTER, PRICE_FACTOR_FNS
 
 
 def load_prices_csv(path: str | Path) -> dict[str, PriceData]:
@@ -160,21 +153,13 @@ def run_backtest(
     Raises:
         ValueError: If factor_fn is unsupported or top_n < 1.
     """
-    from japan_finance_factors.factors import momentum, risk
-
-    factor_fns = {
-        "mom_3m": momentum.mom_3m,
-        "mom_12m": momentum.mom_12m,
-        "realized_vol_60d": risk.realized_vol_60d,
-        "max_drawdown_252d": risk.max_drawdown_252d,
-    }
-    if factor_fn not in factor_fns:
-        supported = list(factor_fns.keys())
+    if factor_fn not in PRICE_FACTOR_FNS:
+        supported = list(PRICE_FACTOR_FNS.keys())
         raise ValueError(f"Unsupported factor: {factor_fn}. Use one of {supported}")
     if top_n < 1:
         raise ValueError(f"top_n must be >= 1, got {top_n}")
 
-    compute_factor = factor_fns[factor_fn]
+    compute_factor = PRICE_FACTOR_FNS[factor_fn]
 
     # Build ticker → {date → close} lookup
     ticker_close: dict[str, dict[date, float]] = {}
@@ -207,7 +192,7 @@ def run_backtest(
     holdings_history: list[dict[str, Any]] = []
     monthly_returns: list[dict[str, Any]] = []
     portfolio_value = 1.0
-    higher_is_better = _HIGHER_IS_BETTER.get(factor_fn, True)
+    higher_is_better = HIGHER_IS_BETTER.get(factor_fn, True)
 
     for i in range(len(rebalance_dates) - 1):
         rebal_date = rebalance_dates[i]
