@@ -50,5 +50,79 @@ def analyze(tickers: tuple[str, ...], year: int | None, fmt: str) -> None:
         click.echo(format_json(results))
 
 
+@main.command()
+@click.argument("tickers", nargs=-1, required=True)
+@click.option("--factor", "-s", default="roe", help="Factor to rank by (e.g., roe, ev_ebitda, mom_3m).")
+@click.option("--year", "-y", type=int, default=None, help="Fiscal year.")
+@click.option("--ascending", "-a", is_flag=True, help="Rank ascending (lower is better).")
+@click.option("--format", "-f", "fmt", type=click.Choice(["table", "json"]), default="table")
+def screen(tickers: tuple[str, ...], factor: str, year: int | None, ascending: bool, fmt: str) -> None:
+    """Screen and rank tickers by a factor.
+
+    Examples:
+
+      jpfin screen 7203 6758 9984 8306 --factor roe
+
+      jpfin screen 7203 6758 9984 --factor ev_ebitda --ascending
+    """
+    from jpfin.screen import screen_tickers
+
+    results = screen_tickers(list(tickers), factor, year=year, ascending=ascending)
+
+    if fmt == "json":
+        click.echo(format_json(results))
+    else:
+        click.echo(f"\n  Screening by: {factor} ({'asc' if ascending else 'desc'})")
+        click.echo(f"  {'Rank':>4s}  {'Ticker':>8s}  {'Value':>12s}")
+        click.echo(f"  {'-'*4}  {'-'*8}  {'-'*12}")
+        for r in results:
+            rank = f"{r['rank']:>4d}" if r["rank"] is not None else "   -"
+            val = f"{r['factor_value']:>12.4f}" if r["factor_value"] is not None else "         N/A"
+            click.echo(f"  {rank}  {r['ticker']:>8s}  {val}")
+        click.echo()
+
+
+@main.command()
+@click.option("--csv", "csv_path", required=True, type=click.Path(exists=True), help="CSV file with price data (date,ticker,close).")
+@click.option("--factor", "-s", default="mom_3m", help="Price-based factor (mom_3m, mom_12m, realized_vol_60d).")
+@click.option("--top", "top_n", default=5, type=int, help="Number of top tickers to hold.")
+@click.option("--format", "-f", "fmt", type=click.Choice(["table", "json"]), default="table")
+def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
+    """Run a simple factor backtest on historical price data.
+
+    Requires a CSV file with columns: date, ticker, close.
+
+    Examples:
+
+      jpfin backtest --csv prices.csv --factor mom_3m --top 5
+    """
+    from jpfin.backtest import load_prices_csv, run_backtest
+
+    price_data = load_prices_csv(csv_path)
+    click.echo(f"  Loaded {len(price_data)} tickers from {csv_path}", err=True)
+
+    result = run_backtest(price_data, factor, top_n=top_n)
+
+    if "error" in result:
+        click.echo(f"Error: {result['error']}", err=True)
+        sys.exit(1)
+
+    if fmt == "json":
+        click.echo(format_json([result]))
+    else:
+        perf = result["performance"]
+        click.echo(f"\n  {'=' * 50}")
+        click.echo(f"  Backtest: Top {top_n} by {factor}")
+        click.echo(f"  Period: {result['period']}")
+        click.echo(f"  Months: {result['months']}")
+        click.echo(f"  {'=' * 50}")
+        click.echo(f"  Total Return:    {perf['total_return']:>8.1%}")
+        click.echo(f"  CAGR:            {perf['cagr']:>8.1%}")
+        click.echo(f"  Annualized Vol:  {perf['annualized_vol']:>8.1%}")
+        click.echo(f"  Sharpe Ratio:    {perf['sharpe_ratio']:>8.2f}")
+        click.echo(f"  Max Drawdown:    {perf['max_drawdown']:>8.1%}")
+        click.echo()
+
+
 if __name__ == "__main__":
     main()
