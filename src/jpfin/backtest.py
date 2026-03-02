@@ -22,6 +22,7 @@ from jpfin.models import (
     BacktestError,
     BacktestResult,
     DataQuality,
+    FactorMetrics,
     HoldingsPeriod,
     MonthlyReturn,
     PerformanceMetrics,
@@ -106,6 +107,42 @@ def _ffill_close(
         if d in closes:
             return closes[d]
     return None
+
+
+def _spearman_rank_corr(x: list[float], y: list[float]) -> float | None:
+    """Compute Spearman rank correlation between two equal-length lists.
+
+    Returns None if fewer than 3 pairs or zero variance in ranks.
+    """
+    n = len(x)
+    if n < 3 or len(y) != n:
+        return None
+
+    def _ranks(vals: list[float]) -> list[float]:
+        indexed = sorted(range(n), key=lambda i: vals[i])
+        ranks = [0.0] * n
+        i = 0
+        while i < n:
+            j = i
+            while j < n - 1 and vals[indexed[j]] == vals[indexed[j + 1]]:
+                j += 1
+            avg_rank = (i + j) / 2.0 + 1.0
+            for k in range(i, j + 1):
+                ranks[indexed[k]] = avg_rank
+            i = j + 1
+        return ranks
+
+    rx = _ranks(x)
+    ry = _ranks(y)
+    mean_rx = sum(rx) / n
+    mean_ry = sum(ry) / n
+    cov = sum((a - mean_rx) * (b - mean_ry) for a, b in zip(rx, ry, strict=True))
+    var_x = sum((a - mean_rx) ** 2 for a in rx)
+    var_y = sum((b - mean_ry) ** 2 for b in ry)
+    denom = (var_x * var_y) ** 0.5
+    if denom == 0:
+        return None
+    return cov / denom
 
 
 def _compute_performance(
@@ -238,6 +275,11 @@ def run_backtest(
     ffill_count = 0
     skip_count = 0
 
+    # Factor metrics accumulators
+    ic_series: list[float] = []
+    turnover_series: list[float] = []
+    prev_holdings: set[str] = set()
+
     for i in range(total_rebalances):
         rebal_date = rebalance_dates[i]
         next_rebal = rebalance_dates[i + 1]
@@ -317,6 +359,27 @@ def run_backtest(
             )
         )
 
+        # --- IC: rank corr(factor, forward return) across ALL tickers ---
+        fwd_factors: list[float] = []
+        fwd_returns: list[float] = []
+        for ticker, fval in factor_values:
+            closes = ticker_close.get(ticker, {})
+            sp = _ffill_close(closes, exec_date, sorted_dates, ffill_limit)
+            ep = _ffill_close(closes, next_exec, sorted_dates, ffill_limit)
+            if sp is not None and ep is not None and sp > 0:
+                fwd_factors.append(fval)
+                fwd_returns.append((ep - sp) / sp)
+        ic = _spearman_rank_corr(fwd_factors, fwd_returns)
+        if ic is not None:
+            ic_series.append(ic)
+
+        # --- Turnover ---
+        current_set = set(selected)
+        if prev_holdings:
+            changed = len(current_set.symmetric_difference(prev_holdings))
+            turnover_series.append(changed / (2 * top_n))
+        prev_holdings = current_set
+
     returns = [m.monthly_return for m in monthly_returns]
     performance = _compute_performance(returns)
 
@@ -334,5 +397,11 @@ def run_backtest(
             total_ticker_slots=total_ticker_slots,
             ffill_count=ffill_count,
             skip_count=skip_count,
+        ),
+        factor_metrics=FactorMetrics(
+            mean_ic=sum(ic_series) / len(ic_series) if ic_series else None,
+            ic_series=ic_series,
+            mean_turnover=sum(turnover_series) / len(turnover_series) if turnover_series else None,
+            turnover_series=turnover_series,
         ),
     )

@@ -54,6 +54,15 @@ class DataQuality(BaseModel):
         return 1.0 - self.skip_count / self.total_ticker_slots
 
 
+class FactorMetrics(BaseModel):
+    """Factor quality and trading cost indicators."""
+
+    mean_ic: float | None
+    ic_series: list[float]
+    mean_turnover: float | None
+    turnover_series: list[float]
+
+
 class BacktestResult(BaseModel):
     """Complete backtest output."""
 
@@ -65,6 +74,7 @@ class BacktestResult(BaseModel):
     monthly_returns: list[MonthlyReturn]
     holdings_history: list[HoldingsPeriod]
     data_quality: DataQuality | None = None
+    factor_metrics: FactorMetrics | None = None
 
 
 class EventStudyWindow(BaseModel):

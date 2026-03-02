@@ -8,7 +8,13 @@ from datetime import date, timedelta
 import pytest
 from japan_finance_factors._models import PriceData
 
-from jpfin.backtest import _ffill_close, _month_end_dates, load_prices_csv, run_backtest
+from jpfin.backtest import (
+    _ffill_close,
+    _month_end_dates,
+    _spearman_rank_corr,
+    load_prices_csv,
+    run_backtest,
+)
 from jpfin.models import BacktestError, BacktestResult
 
 
@@ -186,3 +192,58 @@ class TestFfillClose:
     def test_empty_closes(self) -> None:
         sorted_dates = [date(2024, 1, 10)]
         assert _ffill_close({}, date(2024, 1, 10), sorted_dates) is None
+
+
+class TestSpearmanRankCorr:
+    def test_perfect_positive(self) -> None:
+        assert _spearman_rank_corr([1, 2, 3, 4], [10, 20, 30, 40]) == pytest.approx(1.0)
+
+    def test_perfect_negative(self) -> None:
+        assert _spearman_rank_corr([1, 2, 3, 4], [40, 30, 20, 10]) == pytest.approx(-1.0)
+
+    def test_too_few_pairs(self) -> None:
+        assert _spearman_rank_corr([1, 2], [3, 4]) is None
+
+    def test_tied_values(self) -> None:
+        result = _spearman_rank_corr([1, 1, 2, 3], [10, 20, 30, 40])
+        assert result is not None
+        assert -1.0 <= result <= 1.0
+
+
+class TestFactorMetrics:
+    def test_ic_present(self) -> None:
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+            "C": _make_price_data("C", 300, step=0.5),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=2)
+        assert result.factor_metrics is not None
+        assert len(result.factor_metrics.ic_series) > 0
+        assert result.factor_metrics.mean_ic is not None
+
+    def test_turnover_present(self) -> None:
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+            "C": _make_price_data("C", 300, step=0.5),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=2)
+        assert result.factor_metrics is not None
+        assert len(result.factor_metrics.turnover_series) > 0
+        assert result.factor_metrics.mean_turnover is not None
+        # Turnover is between 0 and 1
+        for t in result.factor_metrics.turnover_series:
+            assert 0.0 <= t <= 1.0
+
+    def test_stable_holdings_low_turnover(self) -> None:
+        """With consistent uptrend ordering, turnover should be low."""
+        price_data = {
+            "A": _make_price_data("A", 300, step=3.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1)
+        assert result.factor_metrics is not None
+        if result.factor_metrics.turnover_series:
+            # A always has higher momentum, so holdings shouldn't change
+            assert result.factor_metrics.mean_turnover == pytest.approx(0.0)
