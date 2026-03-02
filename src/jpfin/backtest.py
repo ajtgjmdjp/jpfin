@@ -171,13 +171,13 @@ def _spearman_rank_corr(x: list[float], y: list[float]) -> float | None:
     ry = _ranks(y)
     mean_rx = sum(rx) / n
     mean_ry = sum(ry) / n
-    cov = sum((a - mean_rx) * (b - mean_ry) for a, b in zip(rx, ry, strict=True))
-    var_x = sum((a - mean_rx) ** 2 for a in rx)
-    var_y = sum((b - mean_ry) ** 2 for b in ry)
+    cov: float = sum((a - mean_rx) * (b - mean_ry) for a, b in zip(rx, ry, strict=True))
+    var_x: float = sum((a - mean_rx) ** 2 for a in rx)
+    var_y: float = sum((b - mean_ry) ** 2 for b in ry)
     denom = (var_x * var_y) ** 0.5
     if denom == 0:
         return None
-    return cov / denom
+    return float(cov / denom)
 
 
 def _compute_performance(
