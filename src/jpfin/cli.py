@@ -201,5 +201,109 @@ def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
         click.echo()
 
 
+@main.command("event-study")
+@click.argument("ticker")
+@click.argument("event_date")
+@click.option(
+    "--before",
+    "-b",
+    "before_days",
+    default="1,5,20",
+    help="Comma-separated days before event (default: 1,5,20).",
+)
+@click.option(
+    "--after",
+    "-a",
+    "after_days",
+    default="1,5,20",
+    help="Comma-separated days after event (default: 1,5,20).",
+)
+@click.option(
+    "--factor",
+    "-s",
+    "factors",
+    multiple=True,
+    help="Factors to compute (repeatable). Default: all price-based.",
+)
+@click.option(
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+)
+def event_study(
+    ticker: str,
+    event_date: str,
+    before_days: str,
+    after_days: str,
+    factors: tuple[str, ...],
+    fmt: str,
+) -> None:
+    """Factor snapshots around a corporate event.
+
+    Computes price-based factors (momentum, volatility) at multiple
+    points before and after an event date for event-study analysis.
+
+    Examples:
+
+      jpfin event-study 7203 2025-05-12
+
+      jpfin event-study 7203 2025-05-12 --before 1,5,20 --after 1,5,20
+
+      jpfin event-study 7203 2025-05-12 --factor mom_3m --factor realized_vol_60d
+    """
+    from jpfin.event_study import run_event_study
+
+    before = [int(d) for d in before_days.split(",")]
+    after = [int(d) for d in after_days.split(",")]
+    factor_list = list(factors) if factors else None
+
+    try:
+        result = run_event_study(
+            ticker,
+            event_date,
+            before_days=before,
+            after_days=after,
+            factors=factor_list,
+        )
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if fmt == "json":
+        click.echo(format_json([result]))
+    else:
+        click.echo(f"\n  {'=' * 60}")
+        click.echo(f"  Event Study: {ticker} @ {event_date}")
+        click.echo(f"  {'=' * 60}")
+        click.echo(f"  {'Window':>8s}  {'as_of':>12s}", nl=False)
+        # Collect all factor names from windows
+        all_factors: list[str] = []
+        for w in result["windows"]:
+            for k in w.get("factors", {}):
+                if k not in all_factors:
+                    all_factors.append(k)
+        for f in all_factors:
+            click.echo(f"  {f:>16s}", nl=False)
+        click.echo()
+        click.echo(f"  {'-' * 8}  {'-' * 12}", nl=False)
+        for _ in all_factors:
+            click.echo(f"  {'-' * 16}", nl=False)
+        click.echo()
+
+        for w in result["windows"]:
+            as_of = w["as_of"][:10] if w["as_of"] else "N/A"
+            click.echo(f"  {w['window']:>8s}  {as_of:>12s}", nl=False)
+            for f in all_factors:
+                val = w.get("factors", {}).get(f)
+                if val is not None:
+                    click.echo(f"  {val:>16.4f}", nl=False)
+                else:
+                    click.echo(f"  {'N/A':>16s}", nl=False)
+            click.echo()
+        click.echo()
+
+
 if __name__ == "__main__":
     main()
