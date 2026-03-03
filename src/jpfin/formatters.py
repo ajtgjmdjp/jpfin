@@ -89,6 +89,19 @@ def format_backtest_table(result: Any) -> str:
         f"  Sharpe Ratio:    {perf.sharpe_ratio:>8.2f}",
         f"  Max Drawdown:    {perf.max_drawdown:>8.1%}",
     ]
+    if result.factor_metrics and result.factor_metrics.ic_stats:
+        ic = result.factor_metrics.ic_stats
+        lines.append(f"  {'-' * 50}")
+        if ic.mean_ic is not None:
+            lines.append(f"  Mean IC:         {ic.mean_ic:>8.4f}")
+        if ic.std_ic is not None:
+            lines.append(f"  IC Std:          {ic.std_ic:>8.4f}")
+        if ic.ic_ir is not None:
+            lines.append(f"  IC IR:           {ic.ic_ir:>8.2f}")
+        if ic.ic_ir_annualized is not None:
+            lines.append(f"  IC IR (ann.):    {ic.ic_ir_annualized:>8.2f}")
+        if ic.ic_hit_rate is not None:
+            lines.append(f"  IC Hit Rate:     {ic.ic_hit_rate:>8.1%}")
     if result.benchmark:
         bm = result.benchmark
         lines.extend(
@@ -190,6 +203,39 @@ def format_decay_table(result: Any) -> str:
         lines.append(f"  Half-life: {result.half_life_months:.0f} months")
     else:
         lines.append("  Half-life: N/A (no decay detected)")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_portfolio_table(analytics: Any) -> str:
+    """Format PortfolioAnalytics as a human-readable table.
+
+    Args:
+        analytics: PortfolioAnalytics instance (from jpfin.models).
+
+    Returns:
+        Formatted string with concentration, sector allocation, and turnover.
+    """
+    lines = [
+        f"\n  {'=' * 50}",
+        "  Portfolio Analytics",
+        f"  {'=' * 50}",
+        f"  HHI (mean):      {analytics.mean_hhi:>8.4f}",
+        f"  HHI (range):     [{analytics.min_hhi:.4f}, {analytics.max_hhi:.4f}]",
+        f"  Effective N:     {analytics.mean_effective_n:>8.1f}",
+    ]
+
+    if analytics.mean_turnover is not None:
+        lines.append(f"  Mean Turnover:   {analytics.mean_turnover:>8.1%}")
+
+    # Latest sector allocation
+    if analytics.sector_weights:
+        latest = analytics.sector_weights[-1]
+        lines.append(f"  {'-' * 50}")
+        lines.append(f"  Sector Allocation (latest: {latest.date})")
+        for sector, weight in sorted(latest.weights.items(), key=lambda x: -x[1]):
+            lines.append(f"    {sector:20s} {weight:>6.1%}")
+
     lines.append("")
     return "\n".join(lines)
 

@@ -12,6 +12,7 @@ from jpfin.formatters import (
     format_backtest_table,
     format_decay_table,
     format_json,
+    format_portfolio_table,
     format_rolling_table,
     format_table,
 )
@@ -204,6 +205,12 @@ def screen(
     help="Step size for rolling windows (default: 1).",
 )
 @click.option(
+    "--portfolio-analytics",
+    "portfolio_analytics",
+    is_flag=True,
+    help="Show portfolio analytics (HHI, sector allocation, turnover).",
+)
+@click.option(
     "--format",
     "-f",
     "fmt",
@@ -219,6 +226,7 @@ def backtest(
     benchmark: str | None,
     rolling_window: int | None,
     rolling_step: int,
+    portfolio_analytics: bool,
     fmt: str,
 ) -> None:
     """Run a simple factor backtest on historical price data.
@@ -234,6 +242,8 @@ def backtest(
       jpfin backtest --csv p.csv -s mom_3m -s realized_vol_60d -w 0.7 -w 0.3
 
       jpfin backtest --db prices.db --factor mom_3m --top 5 --rolling 12
+
+      jpfin backtest --db prices.db --factor mom_3m --top 5 --portfolio-analytics
     """
     if csv_path and db_path:
         click.echo("Error: specify --csv or --db, not both.", err=True)
@@ -275,6 +285,16 @@ def backtest(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
+    # Portfolio analytics (computed before output)
+    pa = None
+    if portfolio_analytics:
+        from jpfin.portfolio import compute_portfolio_analytics
+
+        try:
+            pa = compute_portfolio_analytics(result)
+        except ValueError as e:
+            click.echo(f"Warning: {e}", err=True)
+
     if rolling_window is not None:
         from jpfin.rolling import compute_rolling
 
@@ -284,14 +304,24 @@ def backtest(
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
         if fmt == "json":
-            click.echo(format_json([ra.model_dump()]))
+            data: list[dict[str, object]] = [ra.model_dump()]
+            if pa is not None:
+                data.append(pa.model_dump())
+            click.echo(format_json(data))
         else:
             click.echo(format_backtest_table(result))
             click.echo(format_rolling_table(ra))
+            if pa is not None:
+                click.echo(format_portfolio_table(pa))
     elif fmt == "json":
-        click.echo(format_json([result.model_dump()]))
+        data = [result.model_dump()]
+        if pa is not None:
+            data.append(pa.model_dump())
+        click.echo(format_json(data))
     else:
         click.echo(format_backtest_table(result))
+        if pa is not None:
+            click.echo(format_portfolio_table(pa))
 
 
 @main.command("event-study")
@@ -722,6 +752,12 @@ def db_import(csv_path: str, db_path: str) -> None:
     help="Step size for rolling windows (default: 1).",
 )
 @click.option(
+    "--portfolio-analytics",
+    "portfolio_analytics",
+    is_flag=True,
+    help="Show portfolio analytics (HHI, sector allocation, turnover).",
+)
+@click.option(
     "--format",
     "-f",
     "fmt",
@@ -743,6 +779,7 @@ def run(
     batch_size: int,
     rolling_window: int | None,
     rolling_step: int,
+    portfolio_analytics: bool,
     fmt: str,
 ) -> None:
     """One-shot: fetch data, run backtest, display results.
@@ -756,6 +793,8 @@ def run(
       jpfin run --no-fetch --db prices.db --factor mom_3m
 
       jpfin run --no-fetch --db prices.db --factor mom_3m --rolling 12
+
+      jpfin run --no-fetch --db prices.db --factor mom_3m --portfolio-analytics
     """
     from jpfin.universe import load_universe
 
@@ -872,6 +911,16 @@ def run(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
+    # Portfolio analytics
+    pa = None
+    if portfolio_analytics:
+        from jpfin.portfolio import compute_portfolio_analytics
+
+        try:
+            pa = compute_portfolio_analytics(result)
+        except ValueError as e:
+            click.echo(f"Warning: {e}", err=True)
+
     if rolling_window is not None:
         from jpfin.rolling import compute_rolling
 
@@ -881,14 +930,24 @@ def run(
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
         if fmt == "json":
-            click.echo(format_json([ra.model_dump()]))
+            data_out: list[dict[str, object]] = [ra.model_dump()]
+            if pa is not None:
+                data_out.append(pa.model_dump())
+            click.echo(format_json(data_out))
         else:
             click.echo(format_backtest_table(result))
             click.echo(format_rolling_table(ra))
+            if pa is not None:
+                click.echo(format_portfolio_table(pa))
     elif fmt == "json":
-        click.echo(format_json([result.model_dump()]))
+        data_out = [result.model_dump()]
+        if pa is not None:
+            data_out.append(pa.model_dump())
+        click.echo(format_json(data_out))
     else:
         click.echo(format_backtest_table(result))
+        if pa is not None:
+            click.echo(format_portfolio_table(pa))
 
 
 @main.command()

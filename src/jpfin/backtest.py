@@ -19,6 +19,7 @@ from jpfin._utils import parse_date
 from jpfin.factor_registry import HIGHER_IS_BETTER, PRICE_FACTOR_FNS
 from jpfin.metrics import (
     compute_benchmark_metrics,
+    compute_ic_stats,
     compute_performance,
     spearman_rank_corr,
 )
@@ -494,6 +495,7 @@ def run_backtest(
         factor_metrics=FactorMetrics(
             mean_ic=sum(ic_series) / len(ic_series) if ic_series else None,
             ic_series=ic_series,
+            ic_stats=compute_ic_stats(ic_series),
             mean_turnover=(
                 sum(turnover_series) / len(turnover_series) if turnover_series else None
             ),

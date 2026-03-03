@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import statistics
 
-from jpfin.models import BenchmarkMetrics, PerformanceMetrics
+from jpfin.models import BenchmarkMetrics, ICStats, PerformanceMetrics
 
 
 def spearman_rank_corr(x: list[float], y: list[float]) -> float | None:
@@ -45,6 +45,57 @@ def spearman_rank_corr(x: list[float], y: list[float]) -> float | None:
     if denom == 0:
         return None
     return float(cov / denom)
+
+
+def compute_ic_stats(ic_series: list[float]) -> ICStats:
+    """Compute IC summary statistics from a series of IC values.
+
+    Args:
+        ic_series: List of per-period IC values.
+
+    Returns:
+        ICStats with mean, std, IR, annualized IR, hit rate, and observation count.
+    """
+    n = len(ic_series)
+    if n == 0:
+        return ICStats(
+            mean_ic=None,
+            std_ic=None,
+            ic_ir=None,
+            ic_ir_annualized=None,
+            ic_hit_rate=None,
+            n_obs=0,
+        )
+
+    mean_ic = sum(ic_series) / n
+    ic_hit_rate = sum(1 for ic in ic_series if ic > 0) / n
+
+    if n < 2:
+        return ICStats(
+            mean_ic=mean_ic,
+            std_ic=None,
+            ic_ir=None,
+            ic_ir_annualized=None,
+            ic_hit_rate=ic_hit_rate,
+            n_obs=n,
+        )
+
+    std_ic = statistics.stdev(ic_series)
+    if std_ic == 0:
+        ic_ir: float | None = None
+        ic_ir_ann: float | None = None
+    else:
+        ic_ir = mean_ic / std_ic
+        ic_ir_ann = ic_ir * 12**0.5
+
+    return ICStats(
+        mean_ic=mean_ic,
+        std_ic=std_ic,
+        ic_ir=ic_ir,
+        ic_ir_annualized=ic_ir_ann,
+        ic_hit_rate=ic_hit_rate,
+        n_obs=n,
+    )
 
 
 def compute_performance(

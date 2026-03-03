@@ -54,11 +54,23 @@ class DataQuality(BaseModel):
         return 1.0 - self.skip_count / self.total_ticker_slots
 
 
+class ICStats(BaseModel):
+    """IC summary statistics computed from a series of IC values."""
+
+    mean_ic: float | None
+    std_ic: float | None
+    ic_ir: float | None
+    ic_ir_annualized: float | None
+    ic_hit_rate: float | None
+    n_obs: int
+
+
 class FactorMetrics(BaseModel):
     """Factor quality and trading cost indicators."""
 
     mean_ic: float | None
     ic_series: list[float]
+    ic_stats: ICStats | None = None
     mean_turnover: float | None
     turnover_series: list[float]
 
@@ -86,6 +98,25 @@ class BacktestResult(BaseModel):
     data_quality: DataQuality | None = None
     factor_metrics: FactorMetrics | None = None
     benchmark: BenchmarkMetrics | None = None
+
+
+class SectorWeight(BaseModel):
+    """Sector allocation at a single rebalance date."""
+
+    date: str
+    weights: dict[str, float]
+
+
+class PortfolioAnalytics(BaseModel):
+    """Portfolio-level analytics from a backtest."""
+
+    mean_hhi: float
+    min_hhi: float
+    max_hhi: float
+    mean_effective_n: float
+    sector_weights: list[SectorWeight]
+    turnover_series: list[float]
+    mean_turnover: float | None
 
 
 class RollingWindow(BaseModel):
