@@ -66,6 +66,12 @@ from jpfin.cli._common import _resolve_factors, display_backtest_output, load_pr
     help="Step size for rolling windows (default: 1).",
 )
 @click.option(
+    "--long-short",
+    "long_short",
+    is_flag=True,
+    help="Long top N / short bottom N (dollar-neutral spread).",
+)
+@click.option(
     "--portfolio-analytics",
     "portfolio_analytics",
     is_flag=True,
@@ -87,6 +93,7 @@ def backtest(
     benchmark: str | None,
     rolling_window: int | None,
     rolling_step: int,
+    long_short: bool,
     portfolio_analytics: bool,
     fmt: str,
 ) -> None:
@@ -98,7 +105,7 @@ def backtest(
 
       jpfin backtest --csv prices.csv --factor mom_3m --top 5
 
-      jpfin backtest --db prices.db --factor mom_3m --top 5
+      jpfin backtest --db prices.db --factor mom_3m --top 5 --long-short
 
       jpfin backtest --csv p.csv -s mom_3m -s realized_vol_60d -w 0.7 -w 0.3
 
@@ -119,6 +126,7 @@ def backtest(
             weights=weight_arg,
             benchmark=benchmark,
             top_n=top_n,
+            long_short=long_short,
         )
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
@@ -211,6 +219,12 @@ def backtest(
     help="Step size for rolling windows (default: 1).",
 )
 @click.option(
+    "--long-short",
+    "long_short",
+    is_flag=True,
+    help="Long top N / short bottom N (dollar-neutral spread).",
+)
+@click.option(
     "--portfolio-analytics",
     "portfolio_analytics",
     is_flag=True,
@@ -238,6 +252,7 @@ def run(
     batch_size: int,
     rolling_window: int | None,
     rolling_step: int,
+    long_short: bool,
     portfolio_analytics: bool,
     fmt: str,
 ) -> None:
@@ -247,9 +262,9 @@ def run(
 
       jpfin run --universe nikkei225 --factor mom_3m --top 10
 
-      jpfin run --tickers 7203,6758,9984 --factor mom_3m --benchmark topix
+      jpfin run --no-fetch --db prices.db --factor mom_3m --long-short
 
-      jpfin run --no-fetch --db prices.db --factor mom_3m
+      jpfin run --tickers 7203,6758,9984 --factor mom_3m --benchmark topix
 
       jpfin run --no-fetch --db prices.db --factor mom_3m --rolling 12
 
@@ -365,6 +380,7 @@ def run(
             weights=weight_arg,
             benchmark=benchmark,
             top_n=top_n,
+            long_short=long_short,
         )
     except Exception as e:
         click.echo(f"Error: {e}", err=True)

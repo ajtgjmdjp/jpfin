@@ -378,16 +378,18 @@ def run_backtest(
     weights: list[float] | None = None,
     benchmark: str | None = None,
     top_n: int = 5,
+    long_short: bool = False,
     start_date: date | None = None,
     end_date: date | None = None,
     ffill_limit: int = 5,
     rebalance_freq: str = "monthly",
 ) -> BacktestResult:
-    """Run a simple long-only rebalance backtest.
+    """Run a factor rebalance backtest.
 
     Strategy: At each rebalance date, compute the specified price-based
-    factor(s) for all tickers, select top N, hold equal-weight until the
-    next rebalance.
+    factor(s) for all tickers, select top N (long), hold equal-weight
+    until the next rebalance. When ``long_short=True``, also short the
+    bottom N and compute the dollar-neutral spread return.
 
     Args:
         price_data: Dict mapping ticker → PriceData.
@@ -399,6 +401,8 @@ def run_backtest(
             Fetches benchmark prices via yfinance and computes
             excess return, tracking error, and information ratio.
         top_n: Number of top tickers to hold (>= 1).
+        long_short: If True, go long top N and short bottom N.
+            Period return = avg(long returns) - avg(short returns).
         start_date: Backtest start date.
         end_date: Backtest end date.
         ffill_limit: Max trading days to look back for execution
@@ -492,12 +496,14 @@ def run_backtest(
             higher_is_better=higher_is_better if not multi_factor else True,
         )
 
-        if not factor_values:
+        min_tickers = 2 * top_n if long_short else top_n
+        if len(factor_values) < min_tickers:
             skipped_rebalances += 1
             continue
 
-        # Select top N
-        selected = [t for t, _ in factor_values[:top_n]]
+        # Select long (top N) and optionally short (bottom N)
+        long_selected = [t for t, _ in factor_values[:top_n]]
+        short_selected = [t for t, _ in factor_values[-top_n:]] if long_short else []
 
         # Use next trading day after signal for execution
         exec_date = next_trading_day(rebal_date, sorted_dates)
@@ -507,24 +513,42 @@ def run_backtest(
             continue
 
         # Calculate equal-weight return for the holding period
-        period_returns, skipped_tickers, period_ffill, period_skip = _compute_period_returns(
-            selected, ticker_close, exec_date, next_exec, sorted_dates, ffill_limit
+        long_returns, long_skipped, long_ffill, long_skip = _compute_period_returns(
+            long_selected, ticker_close, exec_date, next_exec, sorted_dates, ffill_limit
         )
-        total_ticker_slots += len(selected)
-        ffill_count += period_ffill
-        skip_count += period_skip
+        total_ticker_slots += len(long_selected)
+        ffill_count += long_ffill
+        skip_count += long_skip
+        skipped_tickers = long_skipped
 
-        avg_return = sum(period_returns) / len(period_returns) if period_returns else 0.0
+        avg_long = sum(long_returns) / len(long_returns) if long_returns else 0.0
+
+        if long_short:
+            short_rets, short_skipped, short_ffill, short_skip = _compute_period_returns(
+                short_selected, ticker_close, exec_date, next_exec, sorted_dates, ffill_limit
+            )
+            total_ticker_slots += len(short_selected)
+            ffill_count += short_ffill
+            skip_count += short_skip
+            skipped_tickers += short_skipped
+
+            avg_short = sum(short_rets) / len(short_rets) if short_rets else 0.0
+            avg_return = avg_long - avg_short
+        else:
+            avg_return = avg_long
+
         portfolio_value *= 1 + avg_return
 
-        holdings_history.append(
-            HoldingsPeriod(
-                date=rebal_date.isoformat(),
-                holdings=selected,
-                factor_values={t: v for t, v in factor_values[:top_n]},
-                skipped=skipped_tickers or None,
-            )
+        hp = HoldingsPeriod(
+            date=rebal_date.isoformat(),
+            holdings=long_selected,
+            factor_values={t: v for t, v in factor_values[:top_n]},
+            skipped=skipped_tickers or None,
         )
+        if long_short:
+            hp.short_holdings = short_selected
+            hp.short_factor_values = {t: v for t, v in factor_values[-top_n:]}
+        holdings_history.append(hp)
 
         monthly_returns.append(
             MonthlyReturn(
@@ -543,10 +567,11 @@ def run_backtest(
             ic_series.append(ic)
 
         # --- Turnover ---
-        current_set = set(selected)
+        current_set = set(long_selected) | set(short_selected)
         if prev_holdings:
+            total_positions = 2 * top_n if long_short else top_n
             changed = len(current_set.symmetric_difference(prev_holdings))
-            turnover_series.append(changed / (2 * top_n))
+            turnover_series.append(changed / (2 * total_positions))
         prev_holdings = current_set
 
     returns = [m.monthly_return for m in monthly_returns]
@@ -586,6 +611,7 @@ def run_backtest(
     return BacktestResult(
         factor=factor_label,
         top_n=top_n,
+        long_short=long_short,
         period=f"{rebal_schedule[0].isoformat()} ~ {rebal_schedule[-1].isoformat()}",
         months=len(returns),
         performance=performance,

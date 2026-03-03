@@ -370,3 +370,72 @@ class TestInputValidation:
         price_data = {"A": _make_price_data("A")}
         with pytest.raises(ValueError, match="Unsupported factor"):
             run_backtest(price_data, "nonexistent_factor", top_n=5)
+
+
+class TestLongShort:
+    """Tests for long-short backtest mode."""
+
+    def _price_data(self) -> dict[str, PriceData]:
+        """3 tickers with distinct momentum: A > B > C."""
+        return {
+            "A": _make_price_data("A", 300, step=3.0),
+            "B": _make_price_data("B", 300, step=1.5),
+            "C": _make_price_data("C", 300, step=0.5),
+        }
+
+    def test_basic_long_short(self) -> None:
+        result = run_backtest(self._price_data(), "mom_3m", top_n=1, long_short=True)
+        assert isinstance(result, BacktestResult)
+        assert result.long_short is True
+        assert result.months > 0
+
+    def test_spread_return_positive(self) -> None:
+        """Long best / short worst should produce positive spread."""
+        result = run_backtest(self._price_data(), "mom_3m", top_n=1, long_short=True)
+        assert result.performance.total_return > 0
+
+    def test_holdings_contain_short(self) -> None:
+        result = run_backtest(self._price_data(), "mom_3m", top_n=1, long_short=True)
+        for h in result.holdings_history:
+            assert h.short_holdings is not None
+            assert len(h.short_holdings) == 1
+            assert h.short_factor_values is not None
+
+    def test_long_only_no_short_holdings(self) -> None:
+        """Long-only should NOT have short_holdings."""
+        result = run_backtest(self._price_data(), "mom_3m", top_n=1, long_short=False)
+        assert result.long_short is False
+        for h in result.holdings_history:
+            assert h.short_holdings is None
+
+    def test_insufficient_tickers_skips(self) -> None:
+        """With 2 tickers and top_n=2, long-short needs 4 → all rebalances skipped."""
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=2, long_short=True)
+        assert result.months == 0
+        assert result.data_quality is not None
+        assert result.data_quality.skipped_rebalances == result.data_quality.total_rebalances
+
+    def test_model_dump_serializable(self) -> None:
+        import json
+
+        result = run_backtest(self._price_data(), "mom_3m", top_n=1, long_short=True)
+        json.dumps(result.model_dump())  # should not raise
+
+    def test_formatter_shows_ls_header(self) -> None:
+        from jpfin.formatters import format_backtest_table
+
+        result = run_backtest(self._price_data(), "mom_3m", top_n=1, long_short=True)
+        output = format_backtest_table(result)
+        assert "L/S" in output
+
+    def test_formatter_long_only_header(self) -> None:
+        from jpfin.formatters import format_backtest_table
+
+        result = run_backtest(self._price_data(), "mom_3m", top_n=1, long_short=False)
+        output = format_backtest_table(result)
+        assert "Top" in output
+        assert "L/S" not in output

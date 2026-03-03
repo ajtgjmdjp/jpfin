@@ -88,7 +88,7 @@ def format_backtest_table(result: BacktestResult) -> str:
     perf = result.performance
     lines = [
         f"\n  {'=' * 50}",
-        f"  Backtest: Top {result.top_n} by {result.factor}",
+        f"  Backtest: {'L/S' if result.long_short else 'Top'} {result.top_n} by {result.factor}",
         f"  Period: {result.period}",
         f"  Months: {result.months}",
         f"  {'=' * 50}",

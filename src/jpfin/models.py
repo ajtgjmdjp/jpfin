@@ -34,6 +34,8 @@ class HoldingsPeriod(BaseModel):
     date: str
     holdings: list[str]
     factor_values: dict[str, float]
+    short_holdings: list[str] | None = None
+    short_factor_values: dict[str, float] | None = None
     skipped: list[str] | None = None
 
 
@@ -90,6 +92,7 @@ class BacktestResult(BaseModel):
 
     factor: str
     top_n: int
+    long_short: bool = False
     period: str
     months: int
     performance: PerformanceMetrics
