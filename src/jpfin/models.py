@@ -161,6 +161,17 @@ class FactorDecayResult(BaseModel):
     half_life_months: float | None
 
 
+class FactorCorrelationResult(BaseModel):
+    """Factor cross-sectional correlation matrix."""
+
+    factors: list[str]
+    correlation_matrix: list[list[float | None]]
+    n_obs_matrix: list[list[int]]
+    mean_abs_correlation: list[float]
+    n_dates: int
+    method: str
+
+
 class EventStudyWindow(BaseModel):
     """A single time window in an event study."""
 

@@ -10,6 +10,7 @@ from jpfin import __version__
 from jpfin.analyze import analyze_ticker_sync
 from jpfin.formatters import (
     format_backtest_table,
+    format_correlation_table,
     format_decay_table,
     format_json,
     format_portfolio_table,
@@ -1038,6 +1039,94 @@ def decay(
         click.echo(format_json([result.model_dump()]))
     else:
         click.echo(format_decay_table(result))
+
+
+@main.command()
+@click.option(
+    "--csv",
+    "csv_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="CSV file with price data.",
+)
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="SQLite database with price data.",
+)
+@click.option(
+    "--factor",
+    "-s",
+    "factors",
+    multiple=True,
+    help="Factor to include (repeatable). Default: all available.",
+)
+@click.option(
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+)
+def correlation(
+    csv_path: str | None,
+    db_path: str | None,
+    factors: tuple[str, ...],
+    fmt: str,
+) -> None:
+    """Compute factor cross-sectional correlation matrix.
+
+    Shows pairwise rank correlations between factors to identify
+    redundancy and diversification opportunities.
+
+    Examples:
+
+      jpfin correlation --db prices.db
+
+      jpfin correlation --csv prices.csv --factor mom_3m --factor mom_12m
+
+      jpfin correlation --db prices.db --format json
+    """
+    if csv_path and db_path:
+        click.echo("Error: specify --csv or --db, not both.", err=True)
+        sys.exit(1)
+    if not csv_path and not db_path:
+        click.echo("Error: specify --csv or --db.", err=True)
+        sys.exit(1)
+
+    if db_path:
+        from jpfin.store import load_prices_db
+
+        price_data = load_prices_db(db_path)
+        source = db_path
+    else:
+        from jpfin.backtest import load_prices_csv
+
+        assert csv_path is not None
+        price_data = load_prices_csv(csv_path)
+        source = csv_path
+
+    click.echo(
+        f"  Loaded {len(price_data)} tickers from {source}",
+        err=True,
+    )
+
+    factor_list = list(factors) if factors else None
+
+    from jpfin.correlation import compute_factor_correlation
+
+    try:
+        result = compute_factor_correlation(price_data, factor_list)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if fmt == "json":
+        click.echo(format_json([result.model_dump()]))
+    else:
+        click.echo(format_correlation_table(result))
 
 
 @main.group()

@@ -240,6 +240,65 @@ def format_portfolio_table(analytics: Any) -> str:
     return "\n".join(lines)
 
 
+def format_correlation_table(result: Any) -> str:
+    """Format FactorCorrelationResult as a human-readable correlation matrix.
+
+    Args:
+        result: FactorCorrelationResult instance (from jpfin.models).
+
+    Returns:
+        Formatted string with correlation matrix and mean absolute correlation ranking.
+    """
+    factors = result.factors
+    n = len(factors)
+
+    # Determine column width from longest factor name
+    max_name = max(len(f) for f in factors)
+    col_w = max(max_name, 8)
+
+    lines = [
+        f"\n  {'=' * (col_w + 2 + n * (col_w + 1))}",
+        f"  Factor Correlation Matrix ({result.method}, {result.n_dates} dates)",
+        f"  {'=' * (col_w + 2 + n * (col_w + 1))}",
+    ]
+
+    # Header row
+    header = f"  {'':>{col_w}}"
+    for f in factors:
+        header += f"  {f:>{col_w}}"
+    lines.append(header)
+
+    # Separator
+    sep = f"  {'-' * col_w}"
+    for _ in factors:
+        sep += f"  {'-' * col_w}"
+    lines.append(sep)
+
+    # Data rows
+    for i, f in enumerate(factors):
+        row = f"  {f:>{col_w}}"
+        for j in range(n):
+            val = result.correlation_matrix[i][j]
+            if val is not None:
+                row += f"  {val:>{col_w}.3f}"
+            else:
+                row += f"  {'N/A':>{col_w}}"
+        lines.append(row)
+
+    # Mean absolute correlation ranking
+    lines.append(f"  {'-' * (col_w + 2 + n * (col_w + 1))}")
+    lines.append("  Mean |corr| (redundancy ranking, higher = more correlated):")
+    ranked = sorted(
+        zip(factors, result.mean_abs_correlation, strict=True),
+        key=lambda x: -x[1],
+    )
+    for f, mac in ranked:
+        lines.append(f"    {f:{col_w}s}  {mac:.3f}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def format_json(results: list[dict[str, Any]]) -> str:
     """Format results as JSON."""
     if len(results) == 1:
