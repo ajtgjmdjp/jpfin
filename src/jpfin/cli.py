@@ -8,7 +8,19 @@ import click
 
 from jpfin import __version__
 from jpfin.analyze import analyze_ticker_sync
-from jpfin.formatters import format_json, format_table
+from jpfin.formatters import format_backtest_table, format_json, format_table
+
+
+def _resolve_factors(
+    factors: tuple[str, ...],
+    weights: tuple[float, ...],
+) -> tuple[str | list[str], list[float] | None]:
+    """Resolve CLI --factor/--weight tuples into backtest arguments."""
+    if not factors:
+        return "mom_3m", None
+    if len(factors) == 1:
+        return factors[0], None
+    return list(factors), list(weights) if weights else None
 
 
 @click.group()
@@ -223,16 +235,7 @@ def backtest(
         err=True,
     )
 
-    # Resolve factor argument: default to "mom_3m" if none specified
-    factor_arg: str | list[str]
-    weight_arg: list[float] | None = None
-    if not factors:
-        factor_arg = "mom_3m"
-    elif len(factors) == 1:
-        factor_arg = factors[0]
-    else:
-        factor_arg = list(factors)
-        weight_arg = list(weights) if weights else None
+    factor_arg, weight_arg = _resolve_factors(factors, weights)
 
     from jpfin.backtest import run_backtest
 
@@ -251,26 +254,7 @@ def backtest(
     if fmt == "json":
         click.echo(format_json([result.model_dump()]))
     else:
-        perf = result.performance
-        click.echo(f"\n  {'=' * 50}")
-        click.echo(f"  Backtest: Top {top_n} by {result.factor}")
-        click.echo(f"  Period: {result.period}")
-        click.echo(f"  Months: {result.months}")
-        click.echo(f"  {'=' * 50}")
-        click.echo(f"  Total Return:    {perf.total_return:>8.1%}")
-        click.echo(f"  CAGR:            {perf.cagr:>8.1%}")
-        click.echo(f"  Annualized Vol:  {perf.annualized_vol:>8.1%}")
-        click.echo(f"  Sharpe Ratio:    {perf.sharpe_ratio:>8.2f}")
-        click.echo(f"  Max Drawdown:    {perf.max_drawdown:>8.1%}")
-        if result.benchmark:
-            bm = result.benchmark
-            click.echo(f"  {'-' * 50}")
-            click.echo(f"  Benchmark:       {bm.benchmark_name}")
-            click.echo(f"  Benchmark Ret:   {bm.benchmark_return:>8.1%}")
-            click.echo(f"  Excess Return:   {bm.excess_return:>8.1%}")
-            click.echo(f"  Tracking Error:  {bm.tracking_error:>8.1%}")
-            click.echo(f"  Info Ratio:      {bm.information_ratio:>8.2f}")
-        click.echo()
+        click.echo(format_backtest_table(result))
 
 
 @main.command("event-study")
@@ -816,16 +800,7 @@ def run(
 
     click.echo(f"  Loaded {len(price_data)} tickers.", err=True)
 
-    # Resolve factors
-    factor_arg: str | list[str]
-    weight_arg: list[float] | None = None
-    if not factors:
-        factor_arg = "mom_3m"
-    elif len(factors) == 1:
-        factor_arg = factors[0]
-    else:
-        factor_arg = list(factors)
-        weight_arg = list(weights) if weights else None
+    factor_arg, weight_arg = _resolve_factors(factors, weights)
 
     # Run backtest
     from jpfin.backtest import run_backtest
@@ -845,26 +820,7 @@ def run(
     if fmt == "json":
         click.echo(format_json([result.model_dump()]))
     else:
-        perf = result.performance
-        click.echo(f"\n  {'=' * 50}")
-        click.echo(f"  Backtest: Top {top_n} by {result.factor}")
-        click.echo(f"  Period: {result.period}")
-        click.echo(f"  Months: {result.months}")
-        click.echo(f"  {'=' * 50}")
-        click.echo(f"  Total Return:    {perf.total_return:>8.1%}")
-        click.echo(f"  CAGR:            {perf.cagr:>8.1%}")
-        click.echo(f"  Annualized Vol:  {perf.annualized_vol:>8.1%}")
-        click.echo(f"  Sharpe Ratio:    {perf.sharpe_ratio:>8.2f}")
-        click.echo(f"  Max Drawdown:    {perf.max_drawdown:>8.1%}")
-        if result.benchmark:
-            bm = result.benchmark
-            click.echo(f"  {'-' * 50}")
-            click.echo(f"  Benchmark:       {bm.benchmark_name}")
-            click.echo(f"  Benchmark Ret:   {bm.benchmark_return:>8.1%}")
-            click.echo(f"  Excess Return:   {bm.excess_return:>8.1%}")
-            click.echo(f"  Tracking Error:  {bm.tracking_error:>8.1%}")
-            click.echo(f"  Info Ratio:      {bm.information_ratio:>8.2f}")
-        click.echo()
+        click.echo(format_backtest_table(result))
 
 
 @main.group()

@@ -275,19 +275,21 @@ def _fetch_benchmark_prices(
     if df.empty:
         raise ValueError(f"No benchmark data for {benchmark} ({yf_ticker})")
 
-    # yfinance may return MultiIndex columns: ("Close", ticker).
-    # Flatten to simple column names.
-    if hasattr(df.columns, "levels"):
-        df.columns = df.columns.get_level_values(0)
+    # Extract Close series — handle both MultiIndex and flat columns
+    import pandas as pd
+
+    if isinstance(df.columns, pd.MultiIndex):
+        close_series = df[("Close", yf_ticker)]
+    elif "Close" in df.columns:
+        close_series = df["Close"]
+    else:
+        raise ValueError(f"No 'Close' column in benchmark data for {benchmark}")
 
     closes: dict[date, float] = {}
-    for idx in df.index:
+    for idx, val in close_series.items():
         d = idx.date() if hasattr(idx, "date") else idx
-        close_val = df.loc[idx, "Close"]
-        import math
-
-        if close_val is not None and not math.isnan(float(close_val)):
-            closes[d] = float(close_val)
+        if pd.notna(val):
+            closes[d] = float(val)
     return closes
 
 

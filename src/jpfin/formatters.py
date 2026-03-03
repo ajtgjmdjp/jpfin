@@ -67,6 +67,44 @@ def format_table(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_backtest_table(result: Any) -> str:
+    """Format BacktestResult as a human-readable table.
+
+    Args:
+        result: BacktestResult instance (from jpfin.models).
+
+    Returns:
+        Formatted string with performance and optional benchmark metrics.
+    """
+    perf = result.performance
+    lines = [
+        f"\n  {'=' * 50}",
+        f"  Backtest: Top {result.top_n} by {result.factor}",
+        f"  Period: {result.period}",
+        f"  Months: {result.months}",
+        f"  {'=' * 50}",
+        f"  Total Return:    {perf.total_return:>8.1%}",
+        f"  CAGR:            {perf.cagr:>8.1%}",
+        f"  Annualized Vol:  {perf.annualized_vol:>8.1%}",
+        f"  Sharpe Ratio:    {perf.sharpe_ratio:>8.2f}",
+        f"  Max Drawdown:    {perf.max_drawdown:>8.1%}",
+    ]
+    if result.benchmark:
+        bm = result.benchmark
+        lines.extend(
+            [
+                f"  {'-' * 50}",
+                f"  Benchmark:       {bm.benchmark_name}",
+                f"  Benchmark Ret:   {bm.benchmark_return:>8.1%}",
+                f"  Excess Return:   {bm.excess_return:>8.1%}",
+                f"  Tracking Error:  {bm.tracking_error:>8.1%}",
+                f"  Info Ratio:      {bm.information_ratio:>8.2f}",
+            ]
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def format_json(results: list[dict[str, Any]]) -> str:
     """Format results as JSON."""
     if len(results) == 1:
