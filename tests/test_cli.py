@@ -40,7 +40,7 @@ def _mock_result(ticker: str = "7203") -> dict:
 
 
 class TestAnalyzeCommand:
-    @patch("jpfin.cli.analyze_ticker_sync")
+    @patch("jpfin.cli.analyze.analyze_ticker_sync")
     def test_single_ticker_table(self, mock_analyze) -> None:
         mock_analyze.return_value = _mock_result()
         runner = CliRunner()
@@ -49,7 +49,7 @@ class TestAnalyzeCommand:
         assert "7203" in result.output
         assert "ev_ebitda" in result.output
 
-    @patch("jpfin.cli.analyze_ticker_sync")
+    @patch("jpfin.cli.analyze.analyze_ticker_sync")
     def test_single_ticker_json(self, mock_analyze) -> None:
         mock_analyze.return_value = _mock_result()
         runner = CliRunner()
@@ -60,7 +60,7 @@ class TestAnalyzeCommand:
         parsed = json.loads(result.output)
         assert parsed["ticker"] == "7203"
 
-    @patch("jpfin.cli.analyze_ticker_sync")
+    @patch("jpfin.cli.analyze.analyze_ticker_sync")
     def test_multiple_tickers(self, mock_analyze) -> None:
         mock_analyze.side_effect = [_mock_result("7203"), _mock_result("6758")]
         runner = CliRunner()
@@ -68,7 +68,7 @@ class TestAnalyzeCommand:
         assert result.exit_code == 0
         assert "7203" in result.output
 
-    @patch("jpfin.cli.analyze_ticker_sync")
+    @patch("jpfin.cli.analyze.analyze_ticker_sync")
     def test_year_option(self, mock_analyze) -> None:
         mock_analyze.return_value = _mock_result()
         runner = CliRunner()
@@ -84,7 +84,7 @@ class TestAnalyzeCommand:
         assert result.exit_code == 0
         assert __import__("jpfin").__version__ in result.output
 
-    @patch("jpfin.cli.analyze_ticker_sync")
+    @patch("jpfin.cli.analyze.analyze_ticker_sync")
     def test_error_exits_nonzero(self, mock_analyze) -> None:
         mock_analyze.side_effect = RuntimeError("API error")
         runner = CliRunner()
