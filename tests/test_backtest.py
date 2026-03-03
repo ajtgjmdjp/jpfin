@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import tempfile
 from datetime import date, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
 from japan_finance_factors._models import PriceData
 
 from jpfin.backtest import (
+    _compute_benchmark_metrics,
     _ffill_close,
     _month_end_dates,
     _rebalance_dates,
@@ -302,3 +304,52 @@ class TestFactorMetrics:
         if result.factor_metrics.turnover_series:
             # A always has higher momentum, so holdings shouldn't change
             assert result.factor_metrics.mean_turnover == pytest.approx(0.0)
+
+
+class TestBenchmarkMetrics:
+    def test_compute_basic(self) -> None:
+        portfolio = [0.05, 0.03, -0.02, 0.04]
+        bench = [0.02, 0.01, -0.01, 0.02]
+        bm = _compute_benchmark_metrics(portfolio, bench, "test")
+        assert bm.benchmark_name == "test"
+        assert bm.excess_return != 0.0
+        assert bm.tracking_error >= 0.0
+
+    def test_compute_empty(self) -> None:
+        bm = _compute_benchmark_metrics([], [], "test")
+        assert bm.excess_return == 0.0
+        assert bm.tracking_error == 0.0
+
+    def test_no_benchmark_by_default(self) -> None:
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1)
+        assert result.benchmark is None
+
+    @patch("jpfin.backtest._fetch_benchmark_prices")
+    def test_with_benchmark(self, mock_bm: MagicMock) -> None:
+        # Create benchmark prices matching the backtest period
+        bm_prices: dict[date, float] = {}
+        base = 1000.0
+        for i in range(400):
+            d = date(2024, 1, 2) + timedelta(days=i)
+            base *= 1.001
+            bm_prices[d] = base
+        mock_bm.return_value = bm_prices
+
+        price_data = {
+            "A": _make_price_data("A", 300, step=2.0),
+            "B": _make_price_data("B", 300, step=1.0),
+        }
+        result = run_backtest(price_data, "mom_3m", top_n=1, benchmark="topix")
+        assert result.benchmark is not None
+        assert result.benchmark.benchmark_name == "topix"
+        assert isinstance(result.benchmark.excess_return, float)
+
+    def test_unknown_benchmark(self) -> None:
+        from jpfin.backtest import _fetch_benchmark_prices
+
+        with pytest.raises(ValueError, match="Unknown benchmark"):
+            _fetch_benchmark_prices("nonexistent", date(2024, 1, 1), date(2024, 6, 1))

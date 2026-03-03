@@ -133,15 +133,31 @@ def screen(
 @click.option(
     "--csv",
     "csv_path",
-    required=True,
     type=click.Path(exists=True),
+    default=None,
     help="CSV file with price data (date,ticker,close).",
+)
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="SQLite database with price data.",
 )
 @click.option(
     "--factor",
     "-s",
-    default="mom_3m",
-    help="Price-based factor (mom_3m, mom_12m, realized_vol_60d).",
+    "factors",
+    multiple=True,
+    help="Price-based factor (repeatable for composite). Default: mom_3m.",
+)
+@click.option(
+    "--weight",
+    "-w",
+    "weights",
+    multiple=True,
+    type=float,
+    help="Weight per factor (repeatable, same order as --factor).",
 )
 @click.option(
     "--top",
@@ -151,31 +167,83 @@ def screen(
     help="Number of top tickers to hold.",
 )
 @click.option(
+    "--benchmark",
+    default=None,
+    help="Benchmark for comparison (topix, nikkei225).",
+)
+@click.option(
     "--format",
     "-f",
     "fmt",
     type=click.Choice(["table", "json"]),
     default="table",
 )
-def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
+def backtest(
+    csv_path: str | None,
+    db_path: str | None,
+    factors: tuple[str, ...],
+    weights: tuple[float, ...],
+    top_n: int,
+    benchmark: str | None,
+    fmt: str,
+) -> None:
     """Run a simple factor backtest on historical price data.
 
-    Requires a CSV file with columns: date, ticker, close.
+    Requires a CSV file or SQLite database with price data.
 
     Examples:
 
       jpfin backtest --csv prices.csv --factor mom_3m --top 5
-    """
-    from jpfin.backtest import load_prices_csv, run_backtest
 
-    price_data = load_prices_csv(csv_path)
+      jpfin backtest --db prices.db --factor mom_3m --top 5
+
+      jpfin backtest --csv p.csv -s mom_3m -s realized_vol_60d -w 0.7 -w 0.3
+    """
+    if csv_path and db_path:
+        click.echo("Error: specify --csv or --db, not both.", err=True)
+        sys.exit(1)
+    if not csv_path and not db_path:
+        click.echo("Error: specify --csv or --db.", err=True)
+        sys.exit(1)
+
+    if db_path:
+        from jpfin.store import load_prices_db
+
+        price_data = load_prices_db(db_path)
+        source = db_path
+    else:
+        from jpfin.backtest import load_prices_csv
+
+        assert csv_path is not None
+        price_data = load_prices_csv(csv_path)
+        source = csv_path
+
     click.echo(
-        f"  Loaded {len(price_data)} tickers from {csv_path}",
+        f"  Loaded {len(price_data)} tickers from {source}",
         err=True,
     )
 
+    # Resolve factor argument: default to "mom_3m" if none specified
+    factor_arg: str | list[str]
+    weight_arg: list[float] | None = None
+    if not factors:
+        factor_arg = "mom_3m"
+    elif len(factors) == 1:
+        factor_arg = factors[0]
+    else:
+        factor_arg = list(factors)
+        weight_arg = list(weights) if weights else None
+
+    from jpfin.backtest import run_backtest
+
     try:
-        result = run_backtest(price_data, factor, top_n=top_n)
+        result = run_backtest(
+            price_data,
+            factor_arg,
+            weights=weight_arg,
+            benchmark=benchmark,
+            top_n=top_n,
+        )
     except (ValueError, Exception) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -185,7 +253,7 @@ def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
     else:
         perf = result.performance
         click.echo(f"\n  {'=' * 50}")
-        click.echo(f"  Backtest: Top {top_n} by {factor}")
+        click.echo(f"  Backtest: Top {top_n} by {result.factor}")
         click.echo(f"  Period: {result.period}")
         click.echo(f"  Months: {result.months}")
         click.echo(f"  {'=' * 50}")
@@ -194,6 +262,14 @@ def backtest(csv_path: str, factor: str, top_n: int, fmt: str) -> None:
         click.echo(f"  Annualized Vol:  {perf.annualized_vol:>8.1%}")
         click.echo(f"  Sharpe Ratio:    {perf.sharpe_ratio:>8.2f}")
         click.echo(f"  Max Drawdown:    {perf.max_drawdown:>8.1%}")
+        if result.benchmark:
+            bm = result.benchmark
+            click.echo(f"  {'-' * 50}")
+            click.echo(f"  Benchmark:       {bm.benchmark_name}")
+            click.echo(f"  Benchmark Ret:   {bm.benchmark_return:>8.1%}")
+            click.echo(f"  Excess Return:   {bm.excess_return:>8.1%}")
+            click.echo(f"  Tracking Error:  {bm.tracking_error:>8.1%}")
+            click.echo(f"  Info Ratio:      {bm.information_ratio:>8.2f}")
         click.echo()
 
 
@@ -336,14 +412,21 @@ def event_study(
     "--out",
     "-o",
     "output_path",
-    default="prices.csv",
+    default=None,
     type=click.Path(),
     help="Output CSV path.",
 )
 @click.option(
+    "--db",
+    "db_path",
+    default=None,
+    type=click.Path(),
+    help="Output SQLite database path.",
+)
+@click.option(
     "--update",
     is_flag=True,
-    help="Incremental update of existing CSV.",
+    help="Incremental update of existing file.",
 )
 @click.option(
     "--batch-size",
@@ -357,34 +440,38 @@ def fetch(
     universe_file: str | None,
     sector: str | None,
     period: str,
-    output_path: str,
+    output_path: str | None,
+    db_path: str | None,
     update: bool,
     batch_size: int,
 ) -> None:
-    """Fetch price data from yfinance and save to CSV.
+    """Fetch price data from yfinance and save to CSV or SQLite.
 
-    The output CSV is compatible with `jpfin backtest --csv`.
+    The output is compatible with `jpfin backtest`.
 
     Examples:
 
       jpfin fetch --tickers 7203,6758,9984 --period 2y --out prices.csv
 
-      jpfin fetch --universe nikkei225 --period 1y --out nk225.csv
+      jpfin fetch --universe nikkei225 --db prices.db
 
-      jpfin fetch --sector 電気機器 --out electronics.csv
-
-      jpfin fetch --update --out prices.csv
+      jpfin fetch --update --db prices.db
     """
-    from jpfin.fetch import fetch_prices, save_prices_csv, update_prices_csv
     from jpfin.universe import load_universe
+
+    use_db = db_path is not None
+    if not use_db and output_path is None:
+        output_path = "prices.csv"
+
+    if use_db and output_path:
+        click.echo("Error: specify --out or --db, not both.", err=True)
+        sys.exit(1)
 
     # Resolve universe (used for both fetch and update)
     ticker_list_parsed = tickers.split(",") if tickers else None
     has_universe_source = any([ticker_list_parsed, universe_name, universe_file, sector])
 
     if update:
-        # For --update, resolve tickers from universe options if provided,
-        # otherwise update all tickers already in the CSV.
         resolved_tickers: list[str] | None = None
         if has_universe_source:
             try:
@@ -398,16 +485,32 @@ def fetch(
                 click.echo(f"Error: {e}", err=True)
                 sys.exit(1)
             resolved_tickers = univ.tickers
+
         try:
-            new_rows = update_prices_csv(
-                output_path,
-                tickers=resolved_tickers,
-                batch_size=batch_size,
-            )
+            if use_db:
+                from jpfin.store import update_prices_db
+
+                assert db_path is not None
+                new_rows = update_prices_db(
+                    db_path,
+                    tickers=resolved_tickers,
+                    batch_size=batch_size,
+                )
+                target = db_path
+            else:
+                from jpfin.fetch import update_prices_csv
+
+                assert output_path is not None
+                new_rows = update_prices_csv(
+                    output_path,
+                    tickers=resolved_tickers,
+                    batch_size=batch_size,
+                )
+                target = output_path
         except Exception as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-        click.echo(f"  Updated {output_path}: {new_rows} new rows added.", err=True)
+        click.echo(f"  Updated {target}: {new_rows} new rows added.", err=True)
         return
 
     if not has_universe_source:
@@ -419,7 +522,7 @@ def fetch(
         sys.exit(1)
 
     try:
-        universe = load_universe(
+        universe_result = load_universe(
             name=universe_name,
             file=universe_file,
             tickers=ticker_list_parsed,
@@ -429,19 +532,19 @@ def fetch(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    # Print warnings
-    for warning in universe.warnings:
+    for warning in universe_result.warnings:
         click.echo(f"  Warning: {warning}", err=True)
 
     click.echo(
-        f"  Universe: {universe.source_label} ({len(universe.tickers)} tickers)",
+        f"  Universe: {universe_result.source_label} ({len(universe_result.tickers)} tickers)",
         err=True,
     )
 
-    # Fetch
+    from jpfin.fetch import fetch_prices
+
     try:
         data = fetch_prices(
-            universe.tickers,
+            universe_result.tickers,
             period=period,
             batch_size=batch_size,
         )
@@ -453,11 +556,315 @@ def fetch(
         click.echo("  No data fetched.", err=True)
         sys.exit(1)
 
-    rows = save_prices_csv(data, output_path)
-    click.echo(
-        f"  Saved {len(data)} tickers, {rows} rows to {output_path}",
-        err=True,
-    )
+    if use_db:
+        from jpfin.store import save_prices_db
+
+        assert db_path is not None
+        rows = save_prices_db(data, db_path)
+        click.echo(
+            f"  Saved {len(data)} tickers, {rows} rows to {db_path}",
+            err=True,
+        )
+    else:
+        from jpfin.fetch import save_prices_csv
+
+        assert output_path is not None
+        rows = save_prices_csv(data, output_path)
+        click.echo(
+            f"  Saved {len(data)} tickers, {rows} rows to {output_path}",
+            err=True,
+        )
+
+
+@main.group()
+def db() -> None:
+    """SQLite database utilities."""
+
+
+@db.command("info")
+@click.argument("db_path", type=click.Path(exists=True))
+def db_info_cmd(db_path: str) -> None:
+    """Show database statistics.
+
+    Examples:
+
+      jpfin db info prices.db
+    """
+    from jpfin.store import db_info
+
+    info = db_info(db_path)
+    click.echo(f"\n  Database: {db_path}")
+    click.echo(f"  Tickers: {info['ticker_count']}")
+    click.echo(f"  Rows:    {info['row_count']}")
+    click.echo(f"  From:    {info['date_min'] or 'N/A'}")
+    click.echo(f"  To:      {info['date_max'] or 'N/A'}")
+    click.echo()
+
+
+@db.command("export")
+@click.argument("db_path", type=click.Path(exists=True))
+@click.argument("csv_path", type=click.Path())
+def db_export(db_path: str, csv_path: str) -> None:
+    """Export SQLite database to CSV.
+
+    Examples:
+
+      jpfin db export prices.db prices.csv
+    """
+    from jpfin.store import export_db_to_csv
+
+    rows = export_db_to_csv(db_path, csv_path)
+    click.echo(f"  Exported {rows} rows to {csv_path}", err=True)
+
+
+@db.command("import")
+@click.argument("csv_path", type=click.Path(exists=True))
+@click.argument("db_path", type=click.Path())
+def db_import(csv_path: str, db_path: str) -> None:
+    """Import CSV file into SQLite database.
+
+    Examples:
+
+      jpfin db import prices.csv prices.db
+    """
+    from jpfin.store import import_csv_to_db
+
+    rows = import_csv_to_db(csv_path, db_path)
+    click.echo(f"  Imported {rows} rows to {db_path}", err=True)
+
+
+@main.command()
+@click.option(
+    "--tickers",
+    "-t",
+    default=None,
+    help="Comma-separated ticker codes.",
+)
+@click.option(
+    "--universe",
+    "-u",
+    "universe_name",
+    default=None,
+    help="Built-in index snapshot (nikkei225, topix_core30).",
+)
+@click.option(
+    "--universe-file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Text file with one ticker per line.",
+)
+@click.option("--sector", default=None, help="Industry sector.")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    type=click.Path(),
+    help="SQLite database for price data (default: in-memory).",
+)
+@click.option(
+    "--period",
+    "-p",
+    default="2y",
+    help="yfinance period (1y, 2y, 5y, max).",
+)
+@click.option(
+    "--factor",
+    "-s",
+    "factors",
+    multiple=True,
+    help="Factor (repeatable for composite). Default: mom_3m.",
+)
+@click.option(
+    "--weight",
+    "-w",
+    "weights",
+    multiple=True,
+    type=float,
+    help="Weight per factor.",
+)
+@click.option("--top", "top_n", default=5, type=int, help="Top N tickers.")
+@click.option("--benchmark", default=None, help="Benchmark (topix, nikkei225).")
+@click.option("--no-fetch", is_flag=True, help="Skip data fetch, use existing DB.")
+@click.option("--batch-size", default=20, type=click.IntRange(1), help="Tickers per request.")
+@click.option(
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+)
+def run(
+    tickers: str | None,
+    universe_name: str | None,
+    universe_file: str | None,
+    sector: str | None,
+    db_path: str | None,
+    period: str,
+    factors: tuple[str, ...],
+    weights: tuple[float, ...],
+    top_n: int,
+    benchmark: str | None,
+    no_fetch: bool,
+    batch_size: int,
+    fmt: str,
+) -> None:
+    """One-shot: fetch data, run backtest, display results.
+
+    Examples:
+
+      jpfin run --universe nikkei225 --factor mom_3m --top 10
+
+      jpfin run --tickers 7203,6758,9984 --factor mom_3m --benchmark topix
+
+      jpfin run --no-fetch --db prices.db --factor mom_3m
+    """
+    from jpfin.universe import load_universe
+
+    # Resolve universe
+    ticker_list = tickers.split(",") if tickers else None
+    has_source = any([ticker_list, universe_name, universe_file, sector])
+
+    if not has_source and not (no_fetch and db_path):
+        click.echo(
+            "Error: specify tickers/universe/sector, or use --no-fetch --db.",
+            err=True,
+        )
+        sys.exit(1)
+
+    resolved_tickers: list[str] | None = None
+    if has_source:
+        try:
+            univ = load_universe(
+                name=universe_name,
+                file=universe_file,
+                tickers=ticker_list,
+                sector=sector,
+            )
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        resolved_tickers = univ.tickers
+        for w in univ.warnings:
+            click.echo(f"  Warning: {w}", err=True)
+        click.echo(
+            f"  Universe: {univ.source_label} ({len(univ.tickers)} tickers)",
+            err=True,
+        )
+
+    # Determine DB path
+    use_tempdb = db_path is None
+    if use_tempdb:
+        import tempfile as _tempfile
+
+        _fd, actual_db = _tempfile.mkstemp(suffix=".db")
+        import os as _os
+
+        _os.close(_fd)
+    else:
+        assert db_path is not None
+        actual_db = db_path
+
+    # Fetch / update data
+    if not no_fetch:
+        if resolved_tickers is None:
+            click.echo("Error: no tickers to fetch.", err=True)
+            sys.exit(1)
+        from pathlib import Path
+
+        from jpfin.fetch import fetch_prices
+        from jpfin.store import save_prices_db, update_prices_db
+
+        try:
+            if not Path(actual_db).exists():
+                data = fetch_prices(
+                    resolved_tickers,
+                    period=period,
+                    batch_size=batch_size,
+                )
+                if data:
+                    save_prices_db(data, actual_db)
+                    click.echo(
+                        f"  Fetched {len(data)} tickers to {actual_db}",
+                        err=True,
+                    )
+            else:
+                new_rows = update_prices_db(
+                    actual_db,
+                    tickers=resolved_tickers,
+                    batch_size=batch_size,
+                )
+                click.echo(
+                    f"  Updated {actual_db}: {new_rows} new rows.",
+                    err=True,
+                )
+        except Exception as e:
+            click.echo(f"Error fetching data: {e}", err=True)
+            sys.exit(1)
+
+    # Load data
+    from jpfin.store import load_prices_db
+
+    try:
+        price_data = load_prices_db(actual_db)
+    except FileNotFoundError:
+        click.echo(f"Error: database not found: {actual_db}", err=True)
+        sys.exit(1)
+
+    if not price_data:
+        click.echo("Error: no price data available.", err=True)
+        sys.exit(1)
+
+    click.echo(f"  Loaded {len(price_data)} tickers.", err=True)
+
+    # Resolve factors
+    factor_arg: str | list[str]
+    weight_arg: list[float] | None = None
+    if not factors:
+        factor_arg = "mom_3m"
+    elif len(factors) == 1:
+        factor_arg = factors[0]
+    else:
+        factor_arg = list(factors)
+        weight_arg = list(weights) if weights else None
+
+    # Run backtest
+    from jpfin.backtest import run_backtest
+
+    try:
+        result = run_backtest(
+            price_data,
+            factor_arg,
+            weights=weight_arg,
+            benchmark=benchmark,
+            top_n=top_n,
+        )
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if fmt == "json":
+        click.echo(format_json([result.model_dump()]))
+    else:
+        perf = result.performance
+        click.echo(f"\n  {'=' * 50}")
+        click.echo(f"  Backtest: Top {top_n} by {result.factor}")
+        click.echo(f"  Period: {result.period}")
+        click.echo(f"  Months: {result.months}")
+        click.echo(f"  {'=' * 50}")
+        click.echo(f"  Total Return:    {perf.total_return:>8.1%}")
+        click.echo(f"  CAGR:            {perf.cagr:>8.1%}")
+        click.echo(f"  Annualized Vol:  {perf.annualized_vol:>8.1%}")
+        click.echo(f"  Sharpe Ratio:    {perf.sharpe_ratio:>8.2f}")
+        click.echo(f"  Max Drawdown:    {perf.max_drawdown:>8.1%}")
+        if result.benchmark:
+            bm = result.benchmark
+            click.echo(f"  {'-' * 50}")
+            click.echo(f"  Benchmark:       {bm.benchmark_name}")
+            click.echo(f"  Benchmark Ret:   {bm.benchmark_return:>8.1%}")
+            click.echo(f"  Excess Return:   {bm.excess_return:>8.1%}")
+            click.echo(f"  Tracking Error:  {bm.tracking_error:>8.1%}")
+            click.echo(f"  Info Ratio:      {bm.information_ratio:>8.2f}")
+        click.echo()
 
 
 @main.group()

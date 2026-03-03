@@ -63,6 +63,16 @@ class FactorMetrics(BaseModel):
     turnover_series: list[float]
 
 
+class BenchmarkMetrics(BaseModel):
+    """Benchmark comparison metrics."""
+
+    benchmark_name: str
+    benchmark_return: float
+    excess_return: float
+    tracking_error: float
+    information_ratio: float
+
+
 class BacktestResult(BaseModel):
     """Complete backtest output."""
 
@@ -75,6 +85,7 @@ class BacktestResult(BaseModel):
     holdings_history: list[HoldingsPeriod]
     data_quality: DataQuality | None = None
     factor_metrics: FactorMetrics | None = None
+    benchmark: BenchmarkMetrics | None = None
 
 
 class EventStudyWindow(BaseModel):
