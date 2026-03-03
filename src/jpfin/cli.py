@@ -8,7 +8,7 @@ import click
 
 from jpfin import __version__
 from jpfin.analyze import analyze_ticker_sync
-from jpfin.formatters import format_backtest_table, format_json, format_table
+from jpfin.formatters import format_backtest_table, format_json, format_rolling_table, format_table
 
 
 def _resolve_factors(
@@ -184,6 +184,20 @@ def screen(
     help="Benchmark for comparison (topix, nikkei225).",
 )
 @click.option(
+    "--rolling",
+    "rolling_window",
+    default=None,
+    type=int,
+    help="Rolling window analysis in months (e.g., 12).",
+)
+@click.option(
+    "--step",
+    "rolling_step",
+    default=1,
+    type=int,
+    help="Step size for rolling windows (default: 1).",
+)
+@click.option(
     "--format",
     "-f",
     "fmt",
@@ -197,6 +211,8 @@ def backtest(
     weights: tuple[float, ...],
     top_n: int,
     benchmark: str | None,
+    rolling_window: int | None,
+    rolling_step: int,
     fmt: str,
 ) -> None:
     """Run a simple factor backtest on historical price data.
@@ -210,6 +226,8 @@ def backtest(
       jpfin backtest --db prices.db --factor mom_3m --top 5
 
       jpfin backtest --csv p.csv -s mom_3m -s realized_vol_60d -w 0.7 -w 0.3
+
+      jpfin backtest --db prices.db --factor mom_3m --top 5 --rolling 12
     """
     if csv_path and db_path:
         click.echo("Error: specify --csv or --db, not both.", err=True)
@@ -251,7 +269,20 @@ def backtest(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    if fmt == "json":
+    if rolling_window is not None:
+        from jpfin.rolling import compute_rolling
+
+        try:
+            ra = compute_rolling(result, window_months=rolling_window, step=rolling_step)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        if fmt == "json":
+            click.echo(format_json([ra.model_dump()]))
+        else:
+            click.echo(format_backtest_table(result))
+            click.echo(format_rolling_table(ra))
+    elif fmt == "json":
         click.echo(format_json([result.model_dump()]))
     else:
         click.echo(format_backtest_table(result))
@@ -671,6 +702,20 @@ def db_import(csv_path: str, db_path: str) -> None:
 @click.option("--no-fetch", is_flag=True, help="Skip data fetch, use existing DB.")
 @click.option("--batch-size", default=20, type=click.IntRange(1), help="Tickers per request.")
 @click.option(
+    "--rolling",
+    "rolling_window",
+    default=None,
+    type=int,
+    help="Rolling window analysis in months (e.g., 12).",
+)
+@click.option(
+    "--step",
+    "rolling_step",
+    default=1,
+    type=int,
+    help="Step size for rolling windows (default: 1).",
+)
+@click.option(
     "--format",
     "-f",
     "fmt",
@@ -690,6 +735,8 @@ def run(
     benchmark: str | None,
     no_fetch: bool,
     batch_size: int,
+    rolling_window: int | None,
+    rolling_step: int,
     fmt: str,
 ) -> None:
     """One-shot: fetch data, run backtest, display results.
@@ -701,6 +748,8 @@ def run(
       jpfin run --tickers 7203,6758,9984 --factor mom_3m --benchmark topix
 
       jpfin run --no-fetch --db prices.db --factor mom_3m
+
+      jpfin run --no-fetch --db prices.db --factor mom_3m --rolling 12
     """
     from jpfin.universe import load_universe
 
@@ -817,7 +866,20 @@ def run(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    if fmt == "json":
+    if rolling_window is not None:
+        from jpfin.rolling import compute_rolling
+
+        try:
+            ra = compute_rolling(result, window_months=rolling_window, step=rolling_step)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        if fmt == "json":
+            click.echo(format_json([ra.model_dump()]))
+        else:
+            click.echo(format_backtest_table(result))
+            click.echo(format_rolling_table(ra))
+    elif fmt == "json":
         click.echo(format_json([result.model_dump()]))
     else:
         click.echo(format_backtest_table(result))

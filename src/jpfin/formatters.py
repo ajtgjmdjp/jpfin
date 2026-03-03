@@ -105,6 +105,65 @@ def format_backtest_table(result: Any) -> str:
     return "\n".join(lines)
 
 
+def format_rolling_table(analysis: Any) -> str:
+    """Format RollingAnalysis as a human-readable table.
+
+    Args:
+        analysis: RollingAnalysis instance (from jpfin.models).
+
+    Returns:
+        Formatted string with per-window metrics and summary statistics.
+    """
+    n_windows = len(analysis.windows)
+    has_ic = any(w.mean_ic is not None for w in analysis.windows)
+
+    lines = [
+        f"\n  {'=' * 72}",
+        f"  Rolling Analysis: {analysis.factor}",
+        f"  Window: {analysis.window_months}M  |  Total: {analysis.total_months}M"
+        f"  |  Windows: {n_windows}",
+        f"  {'=' * 72}",
+    ]
+
+    col_header = (
+        f"  {'Start':>10s}  {'End':>10s}  {'Return':>8s}"
+        f"  {'CAGR':>6s}  {'Vol':>6s}  {'Sharpe':>6s}  {'MaxDD':>6s}"
+    )
+    sep = f"  {'-' * 10}  {'-' * 10}  {'-' * 8}  {'-' * 6}  {'-' * 6}  {'-' * 6}  {'-' * 6}"
+    if has_ic:
+        col_header += f"  {'IC':>6s}"
+        sep += f"  {'-' * 6}"
+    lines.append(col_header)
+    lines.append(sep)
+
+    for w in analysis.windows:
+        p = w.performance
+        row = (
+            f"  {w.window_start:>10s}  {w.window_end:>10s}"
+            f"  {p.total_return:>8.1%}"
+            f"  {p.cagr:>6.1%}"
+            f"  {p.annualized_vol:>6.1%}"
+            f"  {p.sharpe_ratio:>6.2f}"
+            f"  {p.max_drawdown:>6.1%}"
+        )
+        if has_ic:
+            ic_str = f"{w.mean_ic:>6.3f}" if w.mean_ic is not None else f"{'N/A':>6s}"
+            row += f"  {ic_str}"
+        lines.append(row)
+
+    lines.append(f"  {'-' * 72}")
+    lines.append(
+        f"  Sharpe:  mean={analysis.sharpe_mean:.2f}"
+        f"  std={analysis.sharpe_std:.2f}"
+        f"  [{analysis.sharpe_min:.2f}, {analysis.sharpe_max:.2f}]"
+    )
+    if analysis.ic_mean is not None:
+        ic_std_str = f"{analysis.ic_std:.3f}" if analysis.ic_std is not None else "N/A"
+        lines.append(f"  IC:      mean={analysis.ic_mean:.3f}  std={ic_std_str}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def format_json(results: list[dict[str, Any]]) -> str:
     """Format results as JSON."""
     if len(results) == 1:

@@ -88,6 +88,30 @@ class BacktestResult(BaseModel):
     benchmark: BenchmarkMetrics | None = None
 
 
+class RollingWindow(BaseModel):
+    """Performance metrics for a single rolling window."""
+
+    window_start: str
+    window_end: str
+    performance: PerformanceMetrics
+    mean_ic: float | None
+
+
+class RollingAnalysis(BaseModel):
+    """Rolling window analysis of a backtest result."""
+
+    factor: str
+    window_months: int
+    total_months: int
+    windows: list[RollingWindow]
+    sharpe_mean: float
+    sharpe_std: float
+    sharpe_min: float
+    sharpe_max: float
+    ic_mean: float | None
+    ic_std: float | None
+
+
 class EventStudyWindow(BaseModel):
     """A single time window in an event study."""
 
