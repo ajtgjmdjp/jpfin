@@ -112,6 +112,24 @@ class RollingAnalysis(BaseModel):
     ic_std: float | None
 
 
+class DecayLag(BaseModel):
+    """IC statistics at a single lag in factor decay analysis."""
+
+    lag: int
+    mean_ic: float | None
+    std_ic: float | None
+    n_obs: int
+
+
+class FactorDecayResult(BaseModel):
+    """Factor decay analysis — IC term structure across lags."""
+
+    factor: str
+    max_lag: int
+    lags: list[DecayLag]
+    half_life_months: float | None
+
+
 class EventStudyWindow(BaseModel):
     """A single time window in an event study."""
 

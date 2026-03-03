@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import statistics
 
-from jpfin.backtest import _compute_performance
+from jpfin.metrics import compute_performance
 from jpfin.models import BacktestResult, RollingAnalysis, RollingWindow
 
 
@@ -51,7 +51,7 @@ def compute_rolling(
         window_returns = result.monthly_returns[start:end]
         returns = [m.monthly_return for m in window_returns]
 
-        perf = _compute_performance(returns)
+        perf = compute_performance(returns)
 
         # IC slice — best-effort alignment with monthly_returns indices.
         # ic_series may be shorter than monthly_returns when some periods

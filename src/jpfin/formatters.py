@@ -164,6 +164,36 @@ def format_rolling_table(analysis: Any) -> str:
     return "\n".join(lines)
 
 
+def format_decay_table(result: Any) -> str:
+    """Format FactorDecayResult as a human-readable table.
+
+    Args:
+        result: FactorDecayResult instance (from jpfin.models).
+
+    Returns:
+        Formatted string with IC term structure and half-life.
+    """
+    lines = [
+        f"\n  {'=' * 50}",
+        f"  Factor Decay: {result.factor}",
+        f"  Max Lag: {result.max_lag}",
+        f"  {'=' * 50}",
+        f"  {'Lag':>4s}  {'Mean IC':>8s}  {'Std IC':>8s}  {'N obs':>6s}",
+        f"  {'-' * 4}  {'-' * 8}  {'-' * 8}  {'-' * 6}",
+    ]
+    for dl in result.lags:
+        ic_str = f"{dl.mean_ic:>8.4f}" if dl.mean_ic is not None else f"{'N/A':>8s}"
+        std_str = f"{dl.std_ic:>8.4f}" if dl.std_ic is not None else f"{'N/A':>8s}"
+        lines.append(f"  {dl.lag:>4d}  {ic_str}  {std_str}  {dl.n_obs:>6d}")
+    lines.append(f"  {'-' * 50}")
+    if result.half_life_months is not None:
+        lines.append(f"  Half-life: {result.half_life_months:.0f} months")
+    else:
+        lines.append("  Half-life: N/A (no decay detected)")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def format_json(results: list[dict[str, Any]]) -> str:
     """Format results as JSON."""
     if len(results) == 1:

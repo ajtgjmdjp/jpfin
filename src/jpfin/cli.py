@@ -8,7 +8,13 @@ import click
 
 from jpfin import __version__
 from jpfin.analyze import analyze_ticker_sync
-from jpfin.formatters import format_backtest_table, format_json, format_rolling_table, format_table
+from jpfin.formatters import (
+    format_backtest_table,
+    format_decay_table,
+    format_json,
+    format_rolling_table,
+    format_table,
+)
 
 
 def _resolve_factors(
@@ -883,6 +889,96 @@ def run(
         click.echo(format_json([result.model_dump()]))
     else:
         click.echo(format_backtest_table(result))
+
+
+@main.command()
+@click.option(
+    "--csv",
+    "csv_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="CSV file with price data.",
+)
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="SQLite database with price data.",
+)
+@click.option(
+    "--factor",
+    "-s",
+    default="mom_3m",
+    help="Factor to analyze (e.g., mom_3m, mom_12m).",
+)
+@click.option(
+    "--max-lag",
+    default=6,
+    type=int,
+    help="Maximum forward lag in months (default: 6).",
+)
+@click.option(
+    "--format",
+    "-f",
+    "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+)
+def decay(
+    csv_path: str | None,
+    db_path: str | None,
+    factor: str,
+    max_lag: int,
+    fmt: str,
+) -> None:
+    """Analyze factor signal persistence (IC term structure).
+
+    Computes IC at lag 1, 2, ..., max-lag months to show how quickly
+    a factor's predictive power decays.
+
+    Examples:
+
+      jpfin decay --db prices.db --factor mom_3m --max-lag 6
+
+      jpfin decay --csv prices.csv --factor realized_vol_60d --format json
+    """
+    if csv_path and db_path:
+        click.echo("Error: specify --csv or --db, not both.", err=True)
+        sys.exit(1)
+    if not csv_path and not db_path:
+        click.echo("Error: specify --csv or --db.", err=True)
+        sys.exit(1)
+
+    if db_path:
+        from jpfin.store import load_prices_db
+
+        price_data = load_prices_db(db_path)
+        source = db_path
+    else:
+        from jpfin.backtest import load_prices_csv
+
+        assert csv_path is not None
+        price_data = load_prices_csv(csv_path)
+        source = csv_path
+
+    click.echo(
+        f"  Loaded {len(price_data)} tickers from {source}",
+        err=True,
+    )
+
+    from jpfin.decay import compute_decay
+
+    try:
+        result = compute_decay(price_data, factor, max_lag=max_lag)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if fmt == "json":
+        click.echo(format_json([result.model_dump()]))
+    else:
+        click.echo(format_decay_table(result))
 
 
 @main.group()
