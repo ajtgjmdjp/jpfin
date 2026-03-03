@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -11,6 +12,8 @@ from japan_finance_factors._models import FinancialData, PriceData
 from japan_finance_factors.fetch import fetch_financial_data, fetch_price_data
 
 from jpfin._utils import parse_date
+
+logger = logging.getLogger(__name__)
 
 
 async def _resolve_edinet_code(ticker: str) -> str | None:
@@ -51,6 +54,7 @@ async def _fetch_financials(
                 period=str(year),
             )
         except Exception:
+            logger.debug("Financial data fetch failed for %s (year=%s)", edinet_code, year)
             return None
 
     # Auto-detect: try current year, then year-1, then year-2
@@ -62,6 +66,7 @@ async def _fetch_financials(
                 period=str(y),
             )
         except Exception:
+            logger.debug("Financial data fetch failed for %s (year=%s)", edinet_code, y)
             continue
     return None
 
@@ -77,6 +82,7 @@ async def _fetch_prices(
             lookback_days=lookback_days,
         )
     except Exception:
+        logger.debug("Price data fetch failed for %s", ticker)
         return None
 
 

@@ -8,6 +8,7 @@ event-factor context pipeline from the CLI.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 from japan_finance_events import Direction, Event, EventStore, EventType
@@ -18,6 +19,8 @@ from jpfin._utils import parse_date
 from jpfin.factor_registry import compute_price_factors
 from jpfin.fusion import EventFactorFusion
 from jpfin.models import EventStudyResult, EventStudyWindow
+
+logger = logging.getLogger(__name__)
 
 
 class PriceFactorProvider:
@@ -59,6 +62,7 @@ async def _fetch_prices(ticker: str) -> PriceData | None:
     try:
         return await fetch_price_data(ticker, lookback_days=500)
     except Exception:
+        logger.debug("Price data fetch failed for %s", ticker)
         return None
 
 

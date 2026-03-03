@@ -33,11 +33,6 @@ from jpfin.models import (
     MonthlyReturn,
 )
 
-# Compatibility aliases — metrics functions (existing tests import the private names)
-_compute_performance = compute_performance
-_spearman_rank_corr = spearman_rank_corr
-_compute_benchmark_metrics = compute_benchmark_metrics
-
 # Well-known benchmark tickers for yfinance
 BENCHMARK_TICKERS: dict[str, str] = {
     "topix": "1306.T",
@@ -161,11 +156,67 @@ def ffill_close(
     return None
 
 
-# Compatibility aliases — date utility functions (existing tests import private names)
-_month_end_dates = month_end_dates
-_rebalance_dates = rebalance_dates
-_next_trading_day = next_trading_day
-_ffill_close = ffill_close
+# ---------------------------------------------------------------------------
+# Pre-indexed price data for efficient date-based filtering
+# ---------------------------------------------------------------------------
+
+
+class _TickerPriceIndex:
+    """Pre-parsed and sorted price data for a single ticker.
+
+    Enables O(log n) date-based filtering via bisect instead of
+    O(n) list scans with repeated ``parse_date()`` calls.
+    """
+
+    __slots__ = ("closes", "dates", "prices", "ticker")
+
+    def __init__(self, ticker: str, pd: PriceData) -> None:
+        self.ticker = ticker
+        pairs: list[tuple[date, dict[str, Any]]] = []
+        closes: dict[date, float] = {}
+        for p in pd._sorted_prices():
+            d = parse_date(p.get("date"))
+            if d is None:
+                continue
+            pairs.append((d, p))
+            c = p.get("close")
+            if c is not None:
+                closes[d] = float(c)
+        pairs.sort(key=lambda x: x[0])
+        self.dates: list[date] = [d for d, _ in pairs]
+        self.prices: list[dict[str, Any]] = [p for _, p in pairs]
+        self.closes = closes
+
+    def filter_up_to(self, cutoff: date) -> PriceData | None:
+        """Return PriceData with prices up to *cutoff* (inclusive).
+
+        Uses bisect for O(log n) cutoff instead of O(n) list scan.
+        """
+        idx = bisect.bisect_right(self.dates, cutoff)
+        if idx == 0:
+            return None
+        return PriceData(ticker=self.ticker, prices=self.prices[:idx])
+
+
+def _build_price_index(
+    price_data: dict[str, PriceData],
+) -> tuple[dict[str, _TickerPriceIndex], dict[str, dict[date, float]], list[date]]:
+    """Pre-process price data into indexed structures.
+
+    Returns:
+        Tuple of (ticker_index, ticker_close, sorted_all_dates).
+    """
+    ticker_index: dict[str, _TickerPriceIndex] = {}
+    ticker_close: dict[str, dict[date, float]] = {}
+    all_dates: set[date] = set()
+
+    for ticker, pd in price_data.items():
+        idx = _TickerPriceIndex(ticker, pd)
+        ticker_index[ticker] = idx
+        ticker_close[ticker] = idx.closes
+        all_dates.update(idx.dates)
+
+    return ticker_index, ticker_close, sorted(all_dates)
 
 
 def _fetch_benchmark_prices(
@@ -223,6 +274,103 @@ def _fetch_benchmark_prices(
     return closes
 
 
+# ---------------------------------------------------------------------------
+# Extracted helpers for run_backtest (pure functions, no side effects)
+# ---------------------------------------------------------------------------
+
+
+def _compute_factor_rankings(
+    filtered_price_data: dict[str, PriceData],
+    *,
+    multi_factor: bool,
+    factors: list[str] | None = None,
+    validated_weights: list[float] | None = None,
+    compute_factor: Any = None,
+    higher_is_better: bool = True,
+) -> list[tuple[str, float]]:
+    """Compute factor values and return ranked list of (ticker, score).
+
+    Returns empty list if no tickers have valid factor values.
+    """
+    if multi_factor:
+        from jpfin.composite import compute_composite_scores
+        from jpfin.factor_registry import compute_price_factors
+
+        assert factors is not None
+        assert validated_weights is not None
+
+        ticker_factor_vals: dict[str, dict[str, float | None]] = {}
+        for ticker, fpd in filtered_price_data.items():
+            ticker_factor_vals[ticker] = compute_price_factors(fpd, factors)
+
+        return compute_composite_scores(ticker_factor_vals, factors, validated_weights)
+
+    # Single-factor: compute and rank directly
+    factor_values_raw: list[tuple[str, float]] = []
+    for ticker, fpd in filtered_price_data.items():
+        val = compute_factor(fpd)
+        if val is not None:
+            factor_values_raw.append((ticker, val))
+
+    factor_values_raw.sort(key=lambda x: x[1], reverse=higher_is_better)
+    return factor_values_raw
+
+
+def _compute_period_returns(
+    selected: list[str],
+    ticker_close: dict[str, dict[date, float]],
+    exec_date: date,
+    next_exec: date,
+    sorted_dates: list[date],
+    ffill_limit: int,
+) -> tuple[list[float], list[str], int, int]:
+    """Compute equal-weight returns for a holding period.
+
+    Returns:
+        Tuple of (period_returns, skipped_tickers, ffill_count, skip_count).
+    """
+    period_returns: list[float] = []
+    skipped_tickers: list[str] = []
+    ffill_count = 0
+    skip_count = 0
+
+    for ticker in selected:
+        closes = ticker_close.get(ticker, {})
+        start_price = ffill_close(closes, exec_date, sorted_dates, ffill_limit)
+        end_price = ffill_close(closes, next_exec, sorted_dates, ffill_limit)
+        if start_price is not None and end_price is not None and start_price > 0:
+            if exec_date not in closes or next_exec not in closes:
+                ffill_count += 1
+            ret = (end_price - start_price) / start_price
+            period_returns.append(ret)
+        else:
+            skip_count += 1
+            skipped_tickers.append(ticker)
+
+    return period_returns, skipped_tickers, ffill_count, skip_count
+
+
+def _compute_period_ic(
+    factor_values: list[tuple[str, float]],
+    ticker_close: dict[str, dict[date, float]],
+    exec_date: date,
+    next_exec: date,
+    sorted_dates: list[date],
+    ffill_limit: int,
+) -> float | None:
+    """Compute IC (rank correlation of factor vs forward return) for one period."""
+    fwd_factors: list[float] = []
+    fwd_returns: list[float] = []
+    for ticker, fval in factor_values:
+        closes = ticker_close.get(ticker, {})
+        sp = ffill_close(closes, exec_date, sorted_dates, ffill_limit)
+        ep = ffill_close(closes, next_exec, sorted_dates, ffill_limit)
+        if sp is not None and ep is not None and sp > 0:
+            fwd_factors.append(fval)
+            fwd_returns.append((ep - sp) / sp)
+    return spearman_rank_corr(fwd_factors, fwd_returns)
+
+
 def run_backtest(
     price_data: dict[str, PriceData],
     factor_fn: str | list[str] = "mom_3m",
@@ -266,8 +414,13 @@ def run_backtest(
         BacktestError: If insufficient data to run backtest.
     """
     # Determine single vs multi-factor mode
+    factors: list[str] | None = None
+    validated_weights: list[float] | None = None
+    compute_factor: Any = None
+    higher_is_better = True
+
     if isinstance(factor_fn, list):
-        from jpfin.composite import compute_composite_scores, validate_composite_args
+        from jpfin.composite import validate_composite_args
 
         factors, validated_weights = validate_composite_args(factor_fn, weights)
         multi_factor = True
@@ -283,21 +436,11 @@ def run_backtest(
     if top_n < 1:
         raise ValueError(f"top_n must be >= 1, got {top_n}")
 
-    # Build ticker → {date → close} lookup
-    ticker_close: dict[str, dict[date, float]] = {}
-    all_dates: set[date] = set()
-    for ticker, pd in price_data.items():
-        closes_by_date: dict[date, float] = {}
-        for p in pd._sorted_prices():
-            d = parse_date(p.get("date"))
-            c = p.get("close")
-            if d is None or c is None:
-                continue
-            closes_by_date[d] = float(c)
-            all_dates.add(d)
-        ticker_close[ticker] = closes_by_date
+    if not price_data:
+        raise BacktestError("price_data cannot be empty")
 
-    sorted_dates = sorted(all_dates)
+    # Build pre-indexed price data for efficient lookups
+    ticker_index, ticker_close, sorted_dates = _build_price_index(price_data)
     if start_date:
         sorted_dates = [d for d in sorted_dates if d >= start_date]
     if end_date:
@@ -306,8 +449,8 @@ def run_backtest(
     if len(sorted_dates) < 2:
         raise BacktestError("Insufficient date range for backtest")
 
-    rebalance_dates = _rebalance_dates(sorted_dates, rebalance_freq)
-    if len(rebalance_dates) < 2:
+    rebal_schedule = rebalance_dates(sorted_dates, rebalance_freq)
+    if len(rebal_schedule) < 2:
         raise BacktestError("Need at least 2 rebalance periods")
 
     # Run backtest
@@ -315,10 +458,10 @@ def run_backtest(
     monthly_returns: list[MonthlyReturn] = []
     portfolio_value = 1.0
     if not multi_factor:
-        higher_is_better = HIGHER_IS_BETTER.get(factor_fn, True)  # type: ignore[arg-type]
+        higher_is_better = HIGHER_IS_BETTER.get(factor_label, True)
 
     # Data quality counters
-    total_rebalances = len(rebalance_dates) - 1
+    total_rebalances = len(rebal_schedule) - 1
     skipped_rebalances = 0
     total_ticker_slots = 0
     ffill_count = 0
@@ -330,44 +473,24 @@ def run_backtest(
     prev_holdings: set[str] = set()
 
     for i in range(total_rebalances):
-        rebal_date = rebalance_dates[i]
-        next_rebal = rebalance_dates[i + 1]
+        rebal_date = rebal_schedule[i]
+        next_rebal = rebal_schedule[i + 1]
 
-        # Filter prices up to rebalance date
+        # Filter prices up to rebalance date (O(log n) via bisect)
         filtered_price_data: dict[str, PriceData] = {}
-        for ticker, pd in price_data.items():
-            filtered_prices = [
-                p
-                for p in pd._sorted_prices()
-                if (d := parse_date(p.get("date"))) is not None and d <= rebal_date
-            ]
-            if filtered_prices:
-                filtered_price_data[ticker] = PriceData(
-                    ticker=ticker,
-                    prices=filtered_prices,
-                )
+        for ticker, tidx in ticker_index.items():
+            fpd = tidx.filter_up_to(rebal_date)
+            if fpd is not None:
+                filtered_price_data[ticker] = fpd
 
-        if multi_factor:
-            # Multi-factor: compute all factors, then composite z-score
-            from jpfin.factor_registry import compute_price_factors
-
-            ticker_factor_vals: dict[str, dict[str, float | None]] = {}
-            for ticker, fpd in filtered_price_data.items():
-                ticker_factor_vals[ticker] = compute_price_factors(fpd, factors)
-
-            factor_values = compute_composite_scores(
-                ticker_factor_vals, factors, validated_weights
-            )
-        else:
-            # Single-factor: compute and rank directly
-            factor_values_raw: list[tuple[str, float]] = []
-            for ticker, fpd in filtered_price_data.items():
-                val = compute_factor(fpd)
-                if val is not None:
-                    factor_values_raw.append((ticker, val))
-
-            factor_values_raw.sort(key=lambda x: x[1], reverse=higher_is_better)
-            factor_values = factor_values_raw
+        factor_values = _compute_factor_rankings(
+            filtered_price_data,
+            multi_factor=multi_factor,
+            factors=factors if multi_factor else None,
+            validated_weights=validated_weights if multi_factor else None,
+            compute_factor=compute_factor if not multi_factor else None,
+            higher_is_better=higher_is_better if not multi_factor else True,
+        )
 
         if not factor_values:
             skipped_rebalances += 1
@@ -377,29 +500,19 @@ def run_backtest(
         selected = [t for t, _ in factor_values[:top_n]]
 
         # Use next trading day after signal for execution
-        exec_date = _next_trading_day(rebal_date, sorted_dates)
-        next_exec = _next_trading_day(next_rebal, sorted_dates)
+        exec_date = next_trading_day(rebal_date, sorted_dates)
+        next_exec = next_trading_day(next_rebal, sorted_dates)
         if exec_date is None or next_exec is None:
             skipped_rebalances += 1
             continue
 
         # Calculate equal-weight return for the holding period
-        period_returns: list[float] = []
-        skipped_tickers: list[str] = []
-        for ticker in selected:
-            total_ticker_slots += 1
-            closes = ticker_close.get(ticker, {})
-            start_price = _ffill_close(closes, exec_date, sorted_dates, ffill_limit)
-            end_price = _ffill_close(closes, next_exec, sorted_dates, ffill_limit)
-            if start_price is not None and end_price is not None and start_price > 0:
-                # Track whether forward-fill was used
-                if exec_date not in closes or next_exec not in closes:
-                    ffill_count += 1
-                ret = (end_price - start_price) / start_price
-                period_returns.append(ret)
-            else:
-                skip_count += 1
-                skipped_tickers.append(ticker)
+        period_returns, skipped_tickers, period_ffill, period_skip = _compute_period_returns(
+            selected, ticker_close, exec_date, next_exec, sorted_dates, ffill_limit
+        )
+        total_ticker_slots += len(selected)
+        ffill_count += period_ffill
+        skip_count += period_skip
 
         avg_return = sum(period_returns) / len(period_returns) if period_returns else 0.0
         portfolio_value *= 1 + avg_return
@@ -423,16 +536,9 @@ def run_backtest(
         )
 
         # --- IC: rank corr(factor, forward return) across ALL tickers ---
-        fwd_factors: list[float] = []
-        fwd_returns: list[float] = []
-        for ticker, fval in factor_values:
-            closes = ticker_close.get(ticker, {})
-            sp = _ffill_close(closes, exec_date, sorted_dates, ffill_limit)
-            ep = _ffill_close(closes, next_exec, sorted_dates, ffill_limit)
-            if sp is not None and ep is not None and sp > 0:
-                fwd_factors.append(fval)
-                fwd_returns.append((ep - sp) / sp)
-        ic = _spearman_rank_corr(fwd_factors, fwd_returns)
+        ic = _compute_period_ic(
+            factor_values, ticker_close, exec_date, next_exec, sorted_dates, ffill_limit
+        )
         if ic is not None:
             ic_series.append(ic)
 
@@ -444,15 +550,15 @@ def run_backtest(
         prev_holdings = current_set
 
     returns = [m.monthly_return for m in monthly_returns]
-    performance = _compute_performance(returns)
+    performance = compute_performance(returns)
 
     # --- Benchmark comparison ---
     benchmark_metrics: BenchmarkMetrics | None = None
     if benchmark and monthly_returns:
         bm_closes = _fetch_benchmark_prices(
             benchmark,
-            rebalance_dates[0],
-            rebalance_dates[-1],
+            rebal_schedule[0],
+            rebal_schedule[-1],
         )
         bm_sorted = sorted(bm_closes.keys())
 
@@ -463,24 +569,24 @@ def run_backtest(
             if start_d is None or end_d is None:
                 bm_returns.append(0.0)
                 continue
-            exec_d = _next_trading_day(start_d, bm_sorted)
-            next_d = _next_trading_day(end_d, bm_sorted)
+            exec_d = next_trading_day(start_d, bm_sorted)
+            next_d = next_trading_day(end_d, bm_sorted)
             if exec_d is None or next_d is None:
                 bm_returns.append(0.0)
                 continue
-            sp = _ffill_close(bm_closes, exec_d, bm_sorted, ffill_limit)
-            ep = _ffill_close(bm_closes, next_d, bm_sorted, ffill_limit)
+            sp = ffill_close(bm_closes, exec_d, bm_sorted, ffill_limit)
+            ep = ffill_close(bm_closes, next_d, bm_sorted, ffill_limit)
             if sp and ep and sp > 0:
                 bm_returns.append((ep - sp) / sp)
             else:
                 bm_returns.append(0.0)
 
-        benchmark_metrics = _compute_benchmark_metrics(returns, bm_returns, benchmark)
+        benchmark_metrics = compute_benchmark_metrics(returns, bm_returns, benchmark)
 
     return BacktestResult(
         factor=factor_label,
         top_n=top_n,
-        period=f"{rebalance_dates[0].isoformat()} ~ {rebalance_dates[-1].isoformat()}",
+        period=f"{rebal_schedule[0].isoformat()} ~ {rebal_schedule[-1].isoformat()}",
         months=len(returns),
         performance=performance,
         monthly_returns=monthly_returns,

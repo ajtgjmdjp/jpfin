@@ -69,6 +69,9 @@ def compute_rolling(
         )
         start += step
 
+    if not windows:
+        raise ValueError("No valid rolling windows could be constructed")
+
     sharpe_values = [w.performance.sharpe_ratio for w in windows]
     sharpe_mean = sum(sharpe_values) / len(sharpe_values)
     sharpe_std = statistics.stdev(sharpe_values) if len(sharpe_values) >= 2 else 0.0

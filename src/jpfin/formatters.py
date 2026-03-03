@@ -5,6 +5,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from jpfin.models import (
+    BacktestResult,
+    EventStudyResult,
+    FactorCorrelationResult,
+    FactorDecayResult,
+    PortfolioAnalytics,
+    RollingAnalysis,
+)
+
 
 def format_table(result: dict[str, Any]) -> str:
     """Format analysis result as a human-readable table."""
@@ -67,7 +76,7 @@ def format_table(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_backtest_table(result: Any) -> str:
+def format_backtest_table(result: BacktestResult) -> str:
     """Format BacktestResult as a human-readable table.
 
     Args:
@@ -118,7 +127,7 @@ def format_backtest_table(result: Any) -> str:
     return "\n".join(lines)
 
 
-def format_rolling_table(analysis: Any) -> str:
+def format_rolling_table(analysis: RollingAnalysis) -> str:
     """Format RollingAnalysis as a human-readable table.
 
     Args:
@@ -177,7 +186,7 @@ def format_rolling_table(analysis: Any) -> str:
     return "\n".join(lines)
 
 
-def format_decay_table(result: Any) -> str:
+def format_decay_table(result: FactorDecayResult) -> str:
     """Format FactorDecayResult as a human-readable table.
 
     Args:
@@ -207,7 +216,7 @@ def format_decay_table(result: Any) -> str:
     return "\n".join(lines)
 
 
-def format_portfolio_table(analytics: Any) -> str:
+def format_portfolio_table(analytics: PortfolioAnalytics) -> str:
     """Format PortfolioAnalytics as a human-readable table.
 
     Args:
@@ -240,7 +249,7 @@ def format_portfolio_table(analytics: Any) -> str:
     return "\n".join(lines)
 
 
-def format_correlation_table(result: Any) -> str:
+def format_correlation_table(result: FactorCorrelationResult) -> str:
     """Format FactorCorrelationResult as a human-readable correlation matrix.
 
     Args:
@@ -294,6 +303,84 @@ def format_correlation_table(result: Any) -> str:
     )
     for f, mac in ranked:
         lines.append(f"    {f:{col_w}s}  {mac:.3f}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_screen_table(
+    results: list[dict[str, Any]],
+    factor: str,
+    ascending: bool,
+) -> str:
+    """Format screen results as a human-readable table.
+
+    Args:
+        results: List of dicts with keys ``rank``, ``ticker``, ``factor_value``.
+        factor: Factor name used for screening.
+        ascending: Whether ascending order was used.
+
+    Returns:
+        Formatted string with ranked tickers.
+    """
+    direction = "asc" if ascending else "desc"
+    lines = [
+        f"\n  Screening by: {factor} ({direction})",
+        f"  {'Rank':>4s}  {'Ticker':>8s}  {'Value':>12s}",
+        f"  {'-' * 4}  {'-' * 8}  {'-' * 12}",
+    ]
+    for r in results:
+        rank = f"{r['rank']:>4d}" if r["rank"] is not None else "   -"
+        val = f"{r['factor_value']:>12.4f}" if r["factor_value"] is not None else "         N/A"
+        lines.append(f"  {rank}  {r['ticker']:>8s}  {val}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_event_study_table(result: EventStudyResult) -> str:
+    """Format EventStudyResult as a human-readable table.
+
+    Args:
+        result: EventStudyResult instance (from jpfin.models).
+
+    Returns:
+        Formatted string with factor values across event windows.
+    """
+    # Collect all factor names from windows
+    all_factors: list[str] = []
+    for w in result.windows:
+        for k in w.factors:
+            if k not in all_factors:
+                all_factors.append(k)
+
+    lines = [
+        f"\n  {'=' * 60}",
+        f"  Event Study: {result.ticker} @ {result.event_date}",
+        f"  {'=' * 60}",
+    ]
+
+    # Header row
+    header = f"  {'Window':>8s}  {'as_of':>12s}"
+    for f in all_factors:
+        header += f"  {f:>16s}"
+    lines.append(header)
+
+    sep = f"  {'-' * 8}  {'-' * 12}"
+    for _ in all_factors:
+        sep += f"  {'-' * 16}"
+    lines.append(sep)
+
+    # Data rows
+    for w in result.windows:
+        as_of = w.as_of[:10] if w.as_of else "N/A"
+        row = f"  {w.window:>8s}  {as_of:>12s}"
+        for f in all_factors:
+            val = w.factors.get(f)
+            if val is not None:
+                row += f"  {val:>16.4f}"
+            else:
+                row += f"  {'N/A':>16s}"
+        lines.append(row)
 
     lines.append("")
     return "\n".join(lines)

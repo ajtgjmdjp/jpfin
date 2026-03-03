@@ -12,9 +12,11 @@ from jpfin.formatters import (
     format_backtest_table,
     format_correlation_table,
     format_decay_table,
+    format_event_study_table,
     format_json,
     format_portfolio_table,
     format_rolling_table,
+    format_screen_table,
     format_table,
 )
 
@@ -137,16 +139,7 @@ def screen(
     if fmt == "json":
         click.echo(format_json(results))
     else:
-        click.echo(f"\n  Screening by: {factor} ({'asc' if ascending else 'desc'})")
-        click.echo(f"  {'Rank':>4s}  {'Ticker':>8s}  {'Value':>12s}")
-        click.echo(f"  {'-' * 4}  {'-' * 8}  {'-' * 12}")
-        for r in results:
-            rank = f"{r['rank']:>4d}" if r["rank"] is not None else "   -"
-            val = (
-                f"{r['factor_value']:>12.4f}" if r["factor_value"] is not None else "         N/A"
-            )
-            click.echo(f"  {rank}  {r['ticker']:>8s}  {val}")
-        click.echo()
+        click.echo(format_screen_table(results, factor, ascending))
 
 
 @main.command()
@@ -246,29 +239,9 @@ def backtest(
 
       jpfin backtest --db prices.db --factor mom_3m --top 5 --portfolio-analytics
     """
-    if csv_path and db_path:
-        click.echo("Error: specify --csv or --db, not both.", err=True)
-        sys.exit(1)
-    if not csv_path and not db_path:
-        click.echo("Error: specify --csv or --db.", err=True)
-        sys.exit(1)
+    from jpfin._cli_helpers import load_price_data
 
-    if db_path:
-        from jpfin.store import load_prices_db
-
-        price_data = load_prices_db(db_path)
-        source = db_path
-    else:
-        from jpfin.backtest import load_prices_csv
-
-        assert csv_path is not None
-        price_data = load_prices_csv(csv_path)
-        source = csv_path
-
-    click.echo(
-        f"  Loaded {len(price_data)} tickers from {source}",
-        err=True,
-    )
+    price_data, _source = load_price_data(csv_path, db_path)
 
     factor_arg, weight_arg = _resolve_factors(factors, weights)
 
@@ -282,7 +255,7 @@ def backtest(
             benchmark=benchmark,
             top_n=top_n,
         )
-    except (ValueError, Exception) as e:
+    except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -398,35 +371,7 @@ def event_study(
     if fmt == "json":
         click.echo(format_json([result.model_dump()]))
     else:
-        click.echo(f"\n  {'=' * 60}")
-        click.echo(f"  Event Study: {ticker} @ {event_date}")
-        click.echo(f"  {'=' * 60}")
-        click.echo(f"  {'Window':>8s}  {'as_of':>12s}", nl=False)
-        # Collect all factor names from windows
-        all_factors: list[str] = []
-        for w in result.windows:
-            for k in w.factors:
-                if k not in all_factors:
-                    all_factors.append(k)
-        for f in all_factors:
-            click.echo(f"  {f:>16s}", nl=False)
-        click.echo()
-        click.echo(f"  {'-' * 8}  {'-' * 12}", nl=False)
-        for _ in all_factors:
-            click.echo(f"  {'-' * 16}", nl=False)
-        click.echo()
-
-        for w in result.windows:
-            as_of = w.as_of[:10] if w.as_of else "N/A"
-            click.echo(f"  {w.window:>8s}  {as_of:>12s}", nl=False)
-            for f in all_factors:
-                val = w.factors.get(f)
-                if val is not None:
-                    click.echo(f"  {val:>16.4f}", nl=False)
-                else:
-                    click.echo(f"  {'N/A':>16s}", nl=False)
-            click.echo()
-        click.echo()
+        click.echo(format_event_study_table(result))
 
 
 @main.command()
@@ -1003,29 +948,9 @@ def decay(
 
       jpfin decay --csv prices.csv --factor realized_vol_60d --format json
     """
-    if csv_path and db_path:
-        click.echo("Error: specify --csv or --db, not both.", err=True)
-        sys.exit(1)
-    if not csv_path and not db_path:
-        click.echo("Error: specify --csv or --db.", err=True)
-        sys.exit(1)
+    from jpfin._cli_helpers import load_price_data
 
-    if db_path:
-        from jpfin.store import load_prices_db
-
-        price_data = load_prices_db(db_path)
-        source = db_path
-    else:
-        from jpfin.backtest import load_prices_csv
-
-        assert csv_path is not None
-        price_data = load_prices_csv(csv_path)
-        source = csv_path
-
-    click.echo(
-        f"  Loaded {len(price_data)} tickers from {source}",
-        err=True,
-    )
+    price_data, _source = load_price_data(csv_path, db_path)
 
     from jpfin.decay import compute_decay
 
@@ -1089,29 +1014,9 @@ def correlation(
 
       jpfin correlation --db prices.db --format json
     """
-    if csv_path and db_path:
-        click.echo("Error: specify --csv or --db, not both.", err=True)
-        sys.exit(1)
-    if not csv_path and not db_path:
-        click.echo("Error: specify --csv or --db.", err=True)
-        sys.exit(1)
+    from jpfin._cli_helpers import load_price_data
 
-    if db_path:
-        from jpfin.store import load_prices_db
-
-        price_data = load_prices_db(db_path)
-        source = db_path
-    else:
-        from jpfin.backtest import load_prices_csv
-
-        assert csv_path is not None
-        price_data = load_prices_csv(csv_path)
-        source = csv_path
-
-    click.echo(
-        f"  Loaded {len(price_data)} tickers from {source}",
-        err=True,
-    )
+    price_data, _source = load_price_data(csv_path, db_path)
 
     factor_list = list(factors) if factors else None
 

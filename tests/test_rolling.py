@@ -347,3 +347,12 @@ class TestFormatRollingTable:
         # Each window row starts with "  2024-" (date pattern)
         rows = [line for line in output.splitlines() if "2024-" in line or "2025-" in line]
         assert len(rows) == 13
+
+
+class TestComputeRollingEdgeCases:
+    """Edge-case tests for rolling window analysis."""
+
+    def test_one_month_result_raises(self) -> None:
+        result = _make_result(1)
+        with pytest.raises(ValueError, match=r"window_months.*exceeds total"):
+            compute_rolling(result, window_months=2)

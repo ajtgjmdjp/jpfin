@@ -47,3 +47,15 @@ class TestScreenTickers:
         results = screen_tickers(["A", "B"], "roe")
         assert results[0]["ticker"] == "A"
         assert results[1]["rank"] is None
+
+    def test_empty_tickers_returns_empty(self) -> None:
+        results = screen_tickers([], "roe")
+        assert results == []
+
+    @patch("jpfin.screen.analyze_ticker_sync")
+    def test_all_analysis_failures(self, mock_analyze) -> None:
+        mock_analyze.side_effect = RuntimeError("API down")
+        results = screen_tickers(["A", "B"], "roe")
+        assert len(results) == 2
+        assert all(r["factor_value"] is None for r in results)
+        assert all(r["rank"] is None for r in results)

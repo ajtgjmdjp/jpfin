@@ -6,7 +6,11 @@ sector allocation, and turnover analysis from a completed backtest.
 
 from __future__ import annotations
 
+import logging
+
 from jpfin.models import BacktestResult, PortfolioAnalytics, SectorWeight
+
+logger = logging.getLogger(__name__)
 
 
 def _get_sector_map(tickers: list[str]) -> dict[str, str]:
@@ -20,6 +24,7 @@ def _get_sector_map(tickers: list[str]) -> dict[str, str]:
 
         registry = CompanyRegistry.create()
     except Exception:
+        logger.debug("japan-finance-codes unavailable, using 'Unknown' for all sectors")
         return {t: "Unknown" for t in tickers}
 
     sector_map: dict[str, str] = {}

@@ -7,7 +7,9 @@ Provides save/load/update operations for price data with the same
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,17 @@ CREATE INDEX IF NOT EXISTS idx_prices_date ON prices (date);
 def _init_db(conn: sqlite3.Connection) -> None:
     """Create tables and indexes if they don't exist."""
     conn.executescript(_SCHEMA)
+
+
+@contextlib.contextmanager
+def _connect(path: str | Path) -> Iterator[sqlite3.Connection]:
+    """Open a SQLite connection, initialize schema, and close on exit."""
+    conn = sqlite3.connect(str(path))
+    try:
+        _init_db(conn)
+        yield conn
+    finally:
+        conn.close()
 
 
 def save_prices_db(
@@ -69,17 +82,13 @@ def save_prices_db(
                 )
             )
 
-    conn = sqlite3.connect(str(path))
-    try:
-        _init_db(conn)
+    with _connect(path) as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO prices (ticker, date, open, high, low, close, volume) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
         conn.commit()
-    finally:
-        conn.close()
 
     return len(rows)
 
@@ -133,9 +142,7 @@ def load_prices_db(
         query += f" WHERE {where}"
     query += " ORDER BY ticker, date"
 
-    conn = sqlite3.connect(str(path))
-    try:
-        _init_db(conn)
+    with _connect(path) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(query, params)
         ticker_prices: dict[str, list[dict[str, Any]]] = {}
@@ -149,8 +156,6 @@ def load_prices_db(
             if ticker not in ticker_prices:
                 ticker_prices[ticker] = []
             ticker_prices[ticker].append(price)
-    finally:
-        conn.close()
 
     return {
         ticker: PriceData(ticker=ticker, prices=prices) for ticker, prices in ticker_prices.items()
@@ -183,14 +188,10 @@ def update_prices_db(
     # Read existing max dates
     max_dates: dict[str, str] = {}
     if path.exists():
-        conn = sqlite3.connect(str(path))
-        try:
-            _init_db(conn)
+        with _connect(path) as conn:
             for row in conn.execute("SELECT ticker, MAX(date) FROM prices GROUP BY ticker"):
                 if row[1]:
                     max_dates[row[0]] = row[1]
-        finally:
-            conn.close()
 
     if tickers is None:
         tickers = list(max_dates.keys())
@@ -215,22 +216,15 @@ def update_prices_db(
         return 0
 
     # Count existing rows before insert so we can compute truly new rows
-    conn = sqlite3.connect(str(path))
-    try:
-        _init_db(conn)
+    with _connect(path) as conn:
         row_before = conn.execute("SELECT COUNT(*) FROM prices").fetchone()
         count_before = row_before[0] if row_before else 0
-    finally:
-        conn.close()
 
     save_prices_db(new_data, path)
 
-    conn = sqlite3.connect(str(path))
-    try:
+    with _connect(path) as conn:
         row_after = conn.execute("SELECT COUNT(*) FROM prices").fetchone()
         count_after = row_after[0] if row_after else 0
-    finally:
-        conn.close()
 
     return count_after - count_before
 
@@ -291,14 +285,10 @@ def db_info(path: str | Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"Database not found: {path}")
 
-    conn = sqlite3.connect(str(path))
-    try:
-        _init_db(conn)
+    with _connect(path) as conn:
         row = conn.execute(
             "SELECT COUNT(DISTINCT ticker), COUNT(*), MIN(date), MAX(date) FROM prices"
         ).fetchone()
-    finally:
-        conn.close()
 
     if row is None:
         return {"ticker_count": 0, "row_count": 0, "date_min": None, "date_max": None}
