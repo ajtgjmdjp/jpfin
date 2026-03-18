@@ -31,6 +31,61 @@ def _from_yf_ticker(yf_ticker: str) -> str:
     return yf_ticker
 
 
+_OHLCV_COLS = ("Open", "High", "Low", "Close", "Volume")
+
+
+def _extract_prices_flat(
+    df: Any,
+    dates: list[str],
+) -> list[dict[str, Any]]:
+    """Extract prices from a flat-column DataFrame (single ticker)."""
+    import math
+
+    prices: list[dict[str, Any]] = []
+    # Build column arrays for vectorized access
+    col_arrays: dict[str, Any] = {}
+    for col in _OHLCV_COLS:
+        if col in df.columns:
+            col_arrays[col] = df[col].to_numpy()
+
+    for i, d in enumerate(dates):
+        price_row: dict[str, Any] = {"date": d}
+        for col, arr in col_arrays.items():
+            val = arr[i]
+            if val is not None and not math.isnan(float(val)):
+                price_row[col.lower()] = float(val)
+        if "close" in price_row:
+            prices.append(price_row)
+    return prices
+
+
+def _extract_prices_multi(
+    df: Any,
+    dates: list[str],
+    yf_ticker: str,
+) -> list[dict[str, Any]]:
+    """Extract prices for one ticker from a MultiIndex DataFrame."""
+    import math
+
+    prices: list[dict[str, Any]] = []
+    import contextlib
+
+    col_arrays: dict[str, Any] = {}
+    for col in _OHLCV_COLS:
+        with contextlib.suppress(KeyError):
+            col_arrays[col] = df[(col, yf_ticker)].to_numpy()
+
+    for i, d in enumerate(dates):
+        price_row: dict[str, Any] = {"date": d}
+        for col, arr in col_arrays.items():
+            val = arr[i]
+            if val is not None and not math.isnan(float(val)):
+                price_row[col.lower()] = float(val)
+        if "close" in price_row:
+            prices.append(price_row)
+    return prices
+
+
 def fetch_prices(
     tickers: list[str],
     *,
@@ -82,7 +137,8 @@ def fetch_prices(
             "tickers": batch,
             "interval": "1d",
             "progress": False,
-            "threads": True,
+            "threads": False,  # avoid potential deadlock with many tickers
+            "timeout": 30,  # seconds per request
         }
         if start_date:
             kwargs["start"] = start_date
@@ -103,38 +159,19 @@ def fetch_prices(
         # yf.download returns MultiIndex columns for multiple tickers:
         # (Price, Ticker) e.g. ("Close", "7203.T")
         # For single ticker, columns are flat: "Close", "Open", etc.
+        # Extract dates once (vectorized)
+        dates = [idx.date().isoformat() if hasattr(idx, "date") else str(idx) for idx in df.index]
+
         if len(batch) == 1:
             ticker_code = _from_yf_ticker(batch[0])
-            prices: list[dict[str, Any]] = []
-            for idx, row in df.iterrows():
-                d = idx.date() if hasattr(idx, "date") else idx
-                price_row: dict[str, Any] = {"date": d.isoformat()}
-                for col in ("Open", "High", "Low", "Close", "Volume"):
-                    if col in df.columns:
-                        val = row[col]
-                        if val is not None and val == val:  # not NaN
-                            price_row[col.lower()] = float(val)
-                if "close" in price_row:
-                    prices.append(price_row)
+            prices: list[dict[str, Any]] = _extract_prices_flat(df, dates)
             if prices:
                 result[ticker_code] = PriceData(ticker=ticker_code, prices=prices)
         else:
             # MultiIndex columns: iterate per ticker
             for yf_t in batch:
                 ticker_code = _from_yf_ticker(yf_t)
-                prices = []
-                for idx, row in df.iterrows():
-                    d = idx.date() if hasattr(idx, "date") else idx
-                    price_row_: dict[str, Any] = {"date": d.isoformat()}
-                    for col in ("Open", "High", "Low", "Close", "Volume"):
-                        try:
-                            val = row[(col, yf_t)]
-                            if val is not None and val == val:  # not NaN
-                                price_row_[col.lower()] = float(val)
-                        except KeyError:
-                            pass
-                    if "close" in price_row_:
-                        prices.append(price_row_)
+                prices = _extract_prices_multi(df, dates, yf_t)
                 if prices:
                     result[ticker_code] = PriceData(ticker=ticker_code, prices=prices)
 
